@@ -1,0 +1,318 @@
+# מערכת CTI - מדריך מפורט לרצפת הייצור
+
+
+
+## סקירה כללית של המערכת
+מערכת CTI  היא מערכת ניהול ייצור מתקדמת לרצפת הייצור שמנהלת את כל תהליכי הייצור, מכונות, הזמנות, לקוחות ופעולות ייצור.
+
+## מבנה הנתונים - טבלאות עיקריות
+
+### 1. טבלת מכונות (cti_machines)
+**נפח נתונים**: 28 מכונות
+**מטרה**: מאגר מכונות הייצור במפעל
+
+#### עמודות מרכזיות:
+- `MachineID`: מזהה המכונה (MKRGL, MIDI, FINAL, OLD, HADBKA, BOBST)
+- `MachineType`: סוג המכונה (1=BHS, 2=הדבקה, 3=MIDI, 4=OLD)
+- `MachineDescription`: תיאור המכונה בעברית
+- `MaxColors`: מספר צבעים מקסימלי
+- `SetupAdjustment`: זמן כיוון במכונה
+- `RunningAdjustment`: זמן ריצה
+- `AverageRunningSpeed`: מהירות ריצה ממוצעת
+- `TargetFeedsPerRunHour`: יעד הזנות לשעת ריצה
+
+#### דוגמאות מכונות:
+- MKRGL: מכונת BHS 2.8 - הכינוי הנפוץ הוא מקרגל
+- MIDI: מכונת MIDI עם 3 צבעים 
+- FINAL: מכונת גימור
+- BOBST: מכונת BOBST עם 4 צבעים
+- HADBKA: מכונת הדבקה
+
+### 2. טבלת הזמנות (cti_orders)
+**נפח נתונים**: 495,536 הזמנות
+**מטרה**: ניהול הזמנות ייצור ומפרטי מוצרים
+
+#### עמודות מרכזיות:
+- `OrderLink`: מזהה הזמנה ייחודי
+- `OrderID`: מספר הזמנה
+- `SpecID`: מפרט המוצר
+- `CustPO`: מספר הזמנת רכש של הלקוח
+- `CustItemID`: קוד פריט הלקוח (בעברית)
+- `TotalItemsRequired`: כמות נדרשת
+- `BlanksRequired`: כמות חומר גלם נדרשת
+- `BlanksScheduled`: כמות מתוכננת
+- `BlanksCompleted`: כמות שהושלמה
+- `ItemWidth/ItemLength`: מידות המוצר
+- `DueDateTime`: תאריך אספקה נדרש
+- `CustomerLink`: קישור ללקוח
+- `SpecialInstructions`: הוראות מיוחדות בעברית
+
+#### דוגמאות מוצרים:
+- "תחתית A2/12 פרז" - תחתית קרטון
+- הוראות מיוחדות: "חובה לפרק ליחידות במכונה"
+- "אסור לשנות משטוח"
+
+### 3. טבלת פעולות ייצור (cti_operations)
+**נפח נתונים**: 363,430 פעולות
+**מטרה**: מעקב אחר כל פעולה בתהליך הייצור
+
+#### עמודות מרכזיות:
+- `OperationLink`: מזהה פעולה ייחודי
+- `OrderLink`: קישור להזמנה
+- `OPMachineLink`: קישור למכונה
+- `OPState`: מצב הפעולה
+- `OPStatus`: סטטוס הפעולה
+- `OPRunStartDateTime`: תחילת ריצה בפועל
+- `OPRunStopDateTime`: סיום ריצה בפועל
+- `OPSetupStartDateTime`: תחילת כיוון
+- `OPSetupStopDateTime`: סיום כיוון
+- `CPiecesScheduled`: יחידות מתוכננות
+- `FPiecesGoodout`: יחידות תקינות
+- `FPiecesPreWaste`: יחידות פחת לפני הייצור
+- `FPiecesWasteout`: יחידות פחת בפועל
+- `ActualCrewSize`: גודל צוות בפועל
+- **הערה**: לחישוב סך הפחת השתמש ב-`FPiecesPreWaste + FPiecesWasteout`
+
+### 4. טבלת מידע פעולות (cti_operation_info)
+**נפח נתונים**: 998 פעולות מפורטות
+**מטרה**: מידע מפורט על פעולות עם תרגום עברי
+
+#### עמודות מתורגמות:
+- `SpecLink`: קישור לטבלת מוצרים
+- `OrderLink`: קישור לטבלת הזמנות (פקעות)
+- `OPMachineLink`: קישור לטבלת מכונות
+- `OPRunStartDateTime`: תאריך ושעת תחילת עבודה בפועל
+- `OPRunStopDateTime`: תאריך ושעת סיום עבודה בפועל
+- `OPSetupStartDateTime`: תאריך ושעת תחילת כיוון בפועל
+- `OPSetupStopDateTime`: תאריך ושעת סיום כיוון בפועל
+- `FPiecesPreWaste`: יחידות פחת לפני הייצור
+- `FPiecesWasteout`: יחידות פחת בפועל
+- `FPiecesGoodout`: יחידות תקינות
+- **הערה**: לחישוב סך הפחת השתמש ב-`FPiecesPreWaste + FPiecesWasteout`
+
+### 5. טבלת לקוחות (cti_customers)
+**נפח נתונים**: 2,887 לקוחות
+**מטרה**: מאגר לקוחות ופרטי משלוח
+
+#### עמודות מרכזיות:
+- `CustomerLink`: מזהה לקוח ייחודי
+- `CustID`: קוד לקוח
+- `Name`: שם הלקוח
+- `CreditLimit`: מסגרת אשראי
+- `DefShipInstructions`: הוראות משלוח ברירת מחדל
+- `DefInvoiceInstructions`: הוראות חשבונית
+- `CustomerStatus`: סטטוס הלקוח
+- `PrimaryRepLink`: נציג מכירות ראשי
+
+### 6. טבלת משמרות ואזורים (cti_areashft)
+**נפח נתונים**: 20,875 משמרות
+**מטרה**: ניהול משמרות עבודה ואזורי ייצור
+
+#### עמודות מרכזיות:
+- `ShiftLink`: מזהה משמרת
+- `AreaLink`: מזהה אזור
+- `ShiftNumber`: מספר משמרת
+- `StartDateTime`: תחילת משמרת
+- `EndDateTime`: סיום משמרת
+- `CrewSize`: גודל צוות
+- `ActiveShift`: משמרת פעילה
+
+## קשרים בין הטבלאות
+
+### זרימת נתונים:
+1. **לקוח** → **הזמנה** → **פעולות ייצור** → **מכונות**
+2. **CustomerLink** ↔ **OrderLink** ↔ **OperationLink** ↔ **MachineLink**
+3. **משמרות** מחוברות לפעולות דרך **ShiftLink**
+
+### מפתחות קישור:
+- `CustomerLink`: מקשר לקוחות להזמנות
+- `OrderLink`: מקשר הזמנות לפעולות
+- `OperationLink`: מקשר פעולות למכונות
+- `MachineLink`: מקשר פעולות למכונות
+- `SpecLink`: מקשר למפרטי מוצרים
+
+## מדדי ביצוע (KPIs) מרכזיים
+
+### יעילות ייצור:
+- `FPiecesGoodout / CPiecesScheduled`: אחוז השלמת ייצור
+- `(FPiecesPreWaste + FPiecesWasteout) / (FPiecesGoodout + FPiecesPreWaste + FPiecesWasteout)`: אחוז פחת
+- `(CAST(OPRunStopDateTime AS TIMESTAMP) - CAST(OPRunStartDateTime AS TIMESTAMP))`: זמן ריצה בפועל
+- `(CAST(OPSetupStopDateTime AS TIMESTAMP) - CAST(OPSetupStartDateTime AS TIMESTAMP))`: זמן כיוון
+
+### מדדי זמן:
+- `CAST(DueDateTime AS DATE) vs CAST(CompletedDateTime AS DATE)`: עמידה בלוחות זמנים
+- `EarlyProductionDateTime`: ייצור מוקדם (זכור CAST)
+- `LateProductionDateTime`: ייצור מאוחר (זכור CAST)
+
+### מדדי איכות:
+- `FPiecesPreWaste + FPiecesWasteout`: פחת בפועל
+- `FPiecesGoodout`: יחידות תקינות
+- `QtyTransferedOut`: כמות שהועברה החוצה
+
+### חישוב OEE (Overall Equipment Effectiveness):
+- זמינות: זמן ריצה בפועל / זמן מתוכנן
+- ביצועים: FPiecesGoodout / CPiecesScheduled
+- איכות: FPiecesGoodout / (FPiecesGoodout + FPiecesPreWaste + FPiecesWasteout)
+- OEE = זמינות × ביצועים × איכות
+
+## שאלות נפוצות למערכת CTI
+
+### שאלות על מכונות:
+- "איזה מכונות הכי יעילות?"
+- "מה זמן הכיוון הממוצע למכונת BOBST?"
+- "איזה מכונות תומכות ב-4 צבעים?"
+
+### שאלות על הזמנות:
+- "כמה הזמנות פתוחות יש ללקוח X?"
+- "מה סטטוס הזמנה 3762529?"
+- "איזה הזמנות מאחרות?"
+
+### שאלות על ייצור:
+- "מה אחוז הפחת במכונת MIDI השבוע?" (השתמש ב-FPiecesPreWaste + FPiecesWasteout)
+- "כמה זמן לקח לייצר הזמנה X?"
+- "איזה פעולות נמצאות בכיוון כרגע?"
+
+### שאלות על לקוחות:
+- "איזה לקוחות הכי פעילים?"
+- "מה מסגרת האשראי של לקוח Y?"
+- "איזה לקוחות יש להם הזמנות דחופות?"
+
+## הוראות שימוש ב-SQL
+
+### הנחיות אופטימיזציה של שאילתות:
+- **מכונות**: כאשר מבקשים נתונים של מכונה, הוצא רק MachineID או MachineDescription - לא את שניהם (הם זהים)
+- **שנים**: כאשר מבקשים נתונים של שנה מסוימת, אל תוסיף את השנה כעמודה בשאילתה (ערך שחוזר על עצמו)
+- **חודשים**: כאשר מבקשים נתונים של חודש מסוים, אל תוסיף את החודש כעמודה בשאילתה
+
+### שמות טבלאות:
+- השתמש בשמות הטבלאות עם prefix "cti_": cti_machines, cti_orders, cti_operations, cti_customers, cti_areashft, cti_operation_info
+- הקפד על רישיות (case sensitive)
+
+### שמות עמודות בעברית:
+- השתמש בשמות העמודות המקוריים באנגלית
+- הקפד על רישיות (case sensitive)
+- השתמש במרכאות כפולות לערכים בעברית
+
+### שדות תאריכים:
+- כל שדות התאריכים הם VARCHAR ולא DATE אמיתי
+- חובה להשתמש ב-CAST: CAST(DueDateTime AS DATE) או CAST(DueDateTime AS TIMESTAMP)
+- **קריטי - בדיקת NULL כפולה**: WHERE DueDateTime IS NOT NULL AND DueDateTime != 'NULL'
+- דוגמא נכונה: WHERE DueDateTime IS NOT NULL AND DueDateTime != 'NULL' AND CAST(DueDateTime AS DATE) >= '2025-04-01'
+
+### דוגמאות שאילתות:
+```sql
+-- מכונות פעילות (הוצא רק MachineID או MachineDescription - לא שניהם)
+SELECT MachineID, MachineStatus 
+FROM cti_machines 
+WHERE MachineStatus = 400;
+
+-- הזמנות מאוחרות
+SELECT OrderID, CustItemID, DueDateTime 
+FROM cti_orders 
+WHERE DueDateTime IS NOT NULL AND DueDateTime != 'NULL' 
+  AND CAST(DueDateTime AS DATE) < CURRENT_DATE 
+  AND CompletedDateTime IS NULL;
+
+-- פחת לפי מכונה (ללא תיאור מכונה מיותר)
+SELECT m.MachineID, AVG(o.FPiecesPreWaste + o.FPiecesWasteout) as avg_waste
+FROM cti_operations o
+JOIN cti_machines m ON CAST(o.OPMachineLink AS VARCHAR) = CAST(m.AreaLink AS VARCHAR)
+GROUP BY m.MachineID;
+
+-- חישוב OEE לפי מכונה לחודש מסוים (אפריל 2025)
+SELECT 
+    m.MachineID,
+    ROUND(
+        (SUM(o.FPiecesGoodout) * 100.0 / NULLIF(SUM(o.CPiecesScheduled), 0)), 2
+    ) as OEE_percentage,
+    SUM(o.FPiecesGoodout) as total_good_pieces,
+    SUM(o.CPiecesScheduled) as total_scheduled_pieces,
+    SUM(o.FPiecesPreWaste + o.FPiecesWasteout) as total_waste_pieces
+FROM cti_operations o
+JOIN cti_machines m ON CAST(o.OPMachineLink AS VARCHAR) = CAST(m.AreaLink AS VARCHAR)
+WHERE o.OPRunStartDateTime IS NOT NULL 
+  AND o.OPRunStartDateTime != 'NULL'
+  AND o.OPRunStopDateTime IS NOT NULL
+  AND o.OPRunStopDateTime != 'NULL'
+  AND CAST(o.OPRunStartDateTime AS DATE) >= '2025-04-01'
+  AND CAST(o.OPRunStartDateTime AS DATE) < '2025-05-01'
+GROUP BY m.MachineID
+ORDER BY OEE_percentage DESC;
+
+-- דוגמא נוספת: ייצור לפי מכונה לשנה מסוימת (2025) - ללא הוצאת השנה
+SELECT 
+    m.MachineID,
+    SUM(o.FPiecesGoodout) as total_produced,
+    AVG(o.FPiecesPreWaste + o.FPiecesWasteout) as avg_waste
+FROM cti_operations o
+JOIN cti_machines m ON CAST(o.OPMachineLink AS VARCHAR) = CAST(m.AreaLink AS VARCHAR)
+WHERE o.OPRunStartDateTime IS NOT NULL 
+  AND o.OPRunStartDateTime != 'NULL'
+  AND CAST(o.OPRunStartDateTime AS DATE) >= '2025-01-01'
+  AND CAST(o.OPRunStartDateTime AS DATE) < '2026-01-01'
+GROUP BY m.MachineID
+ORDER BY total_produced DESC;
+```
+
+## הערות חשובות
+
+### תאריכים - חשוב מאוד:
+- פורמט: VARCHAR עם מבנה 'YYYY-MM-DD HH:MM:SS.000' (למשל: '2025-03-27 02:11:54.000')
+- ערכים יכולים להיות NULL אמיתי או מחרוזת 'NULL'
+- חובה להשתמש ב-CAST לתאריכים: CAST(DueDateTime AS DATE)
+- לזמן מלא: CAST(DueDateTime AS TIMESTAMP)
+- **קריטי - בדיקת NULL כפולה**: WHERE DueDateTime IS NOT NULL AND DueDateTime != 'NULL'
+- דוגמא נכונה: WHERE DueDateTime IS NOT NULL AND DueDateTime != 'NULL' AND CAST(DueDateTime AS DATE) >= '2025-01-01'
+
+### ערכים בעברית:
+- מוצרים: "תחתית A2/12 פרז"
+- הוראות: "חובה לפרק ליחידות במכונה"
+- תיאורים: "אסור לשנות משטוח"
+
+### ערכים מיוחדים:
+- NULL: ערך ריק
+- -1: ערך לא מוגדר
+- 0: ערך ברירת מחדל
+
+### יחידות מידה:
+- מידות: מטרים
+- זמן: דקות/שעות
+- כמויות: יחידות
+- מהירות: יחידות לשעה
+
+## הערות קריטיות לפני שאילתות:
+
+### 1. שמות טבלאות:
+- **חובה לזכור**: כל הטבלאות עם prefix "cti_"
+- cti_machines (לא CTI_Machine)
+- cti_orders (לא CTI_orders)
+- cti_operations (לא CTI_Operation)
+- cti_customers (לא CTI_Customer)
+- cti_areashft (לא CTI_Areashft)
+- cti_operation_info (לא CIT_Operation_info)
+
+### 2. שדות תאריכים:
+- **חובה לזכור**: כל התאריכים הם VARCHAR!
+- DueDateTime, OPRunStartDateTime, OPRunStopDateTime, OPSetupStartDateTime, OPSetupStopDateTime
+- חובה CAST: CAST(DueDateTime AS DATE) לתאריך
+- חובה CAST: CAST(DueDateTime AS TIMESTAMP) לזמן מלא
+- **קריטי - בדיקת NULL כפולה**: WHERE DueDateTime IS NOT NULL AND DueDateTime != 'NULL'
+- **דוגמא נכונה**: WHERE DueDateTime IS NOT NULL AND DueDateTime != 'NULL' AND CAST(DueDateTime AS DATE) >= '2025-01-01'
+
+### 3. JOIN בין טבלאות:
+- cti_orders.CustomerLink = cti_customers.CustomerLink
+- cti_operations.OrderLink = cti_orders.OrderLink
+- cti_operations.OPMachineLink = cti_machines.AreaLink (עם CAST! CAST(o.OPMachineLink AS VARCHAR) = CAST(m.AreaLink AS VARCHAR))
+
+### 4. JOIN קריטי עם CAST:
+- OPMachineLink הוא BIGINT (1, 4, 6, 7...)
+- AreaLink הוא VARCHAR ('1', '4', '6', '7'...)
+- חובה CAST לשני הצדדים: CAST(o.OPMachineLink AS VARCHAR) = CAST(m.AreaLink AS VARCHAR)
+
+### 5. **אזהרה קריטית - טיפול בNULL בתאריכים**:
+- שדות תאריכים יכולים להכיל NULL אמיתי או מחרוזת 'NULL'
+- **חובה לבדוק את שני הסוגים**: WHERE field IS NOT NULL AND field != 'NULL'
+- **לעולם לא לעשות CAST ללא בדיקה**: CAST יכשל על 'NULL' string
+- **תבנית נכונה**: WHERE field IS NOT NULL AND field != 'NULL' AND CAST(field AS DATE) >= '2025-01-01'
+
+זהו מדריך מקיף למערכת CTI שיעזור בהבנת הנתונים ויצירת שאילתות מדויקות. 

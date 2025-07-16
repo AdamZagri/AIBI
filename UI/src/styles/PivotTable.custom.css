@@ -1,0 +1,12 @@
+/* src/styles/PivotTable.custom.css */
+.pvtTable {
+  border: 2px solid #1976d2; /* צבע התיחום הרצוי */
+}
+.pvtRendererArea {
+  background: #f5f5f5;
+}
+.pvtColLabel, .pvtRowLabel {
+  font-weight: 600;
+  color: #0d47a1;
+}
+/* ועוד כל Override אחר שתצטרך… */

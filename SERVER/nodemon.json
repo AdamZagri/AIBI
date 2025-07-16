@@ -1,0 +1,11 @@
+{
+  "watch": [
+    "server4.mjs",
+    "Server_Dashboards.mjs",
+    "init-db.js",
+    "./**/*.mjs"
+  ],
+  "ext":   "mjs,js,json",
+  "ignore":["node_modules"],
+  "exec":  "node server4.mjs"
+}
