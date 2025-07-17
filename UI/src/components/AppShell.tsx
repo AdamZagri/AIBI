@@ -67,6 +67,15 @@ function SidebarLink({
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const { data: session } = useSession();
+  
+  // אובייקט זמני אם אין session - יעודכן מגוגל בעתיד
+  const mockSession = {
+    user: {
+      name: 'אדם זגרי',
+      email: 'adam@rotlein.co.il',
+    }
+  };
+
   const { isOpen, onToggle } = useDisclosure({ defaultIsOpen: true });
   const router = useRouter();
   const chatDisclosure = useDisclosure();
@@ -78,6 +87,16 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const newChat = () => {
     localStorage.removeItem('chatId');
     router.push('/');
+  };
+
+  const handleSignOut = () => {
+    if (session) {
+      signOut({ callbackUrl: '/' });
+    } else {
+      // אם אין session אמיתי, פשוט נקה הכל
+      localStorage.removeItem('chatId');
+      window.location.reload();
+    }
   };
 
   return (
@@ -250,7 +269,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </Collapse>
 
           {/* Billing */}
-          <Button
+          {/* <Button
             leftIcon={<FiCreditCard />}
             rightIcon={
               <Icon
@@ -278,7 +297,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 {isOpen && 'Change Plan'}
               </SidebarLink>
             </VStack>
-          </Collapse>
+          </Collapse> */}
 
           <SidebarLink icon={<InfoIcon />} href="/about">
             {isOpen && 'About Us'}
@@ -330,17 +349,15 @@ export default function AppShell({ children }: { children: ReactNode }) {
             מערכת AI לניתוח נתוני ERP
           </Text>
           <HStack spacing={3}>
-            {session && (
-              <Text fontSize="sm">
-                שלום, {session.user?.name ?? session.user?.email}
-              </Text>
-            )}
+            <Text fontSize="sm">
+              שלום, {session?.user?.name || mockSession.user?.name || session?.user?.email || mockSession.user?.email}
+            </Text>
             <IconButton
               aria-label="התנתק"
               icon={<FiLogOut />}
               variant="ghost"
               color="white"
-              onClick={() => signOut({ callbackUrl: '/' })}
+              onClick={handleSignOut}
             />
           </HStack>
         </Flex>

@@ -178,7 +178,25 @@ const pfx = fs.readFileSync(PFX_PATH);
 const app = express();
 app.use(
   cors({
-    origin: ['http://localhost:3000', 'https://aibi.cloudline.co.il'],
+    origin: (origin, callback) => {
+      const allowedOrigins = [
+        'http://localhost:3000', 
+        'https://aibi.cloudline.co.il',
+        'https://preview--ai-bi-analytics-b652ea61.base44.app'
+      ];
+      
+      // Allow BASE44 domains dynamically
+      if (origin && origin.includes('.base44.app')) {
+        return callback(null, true);
+      }
+      
+      // Check static origins
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      
+      return callback(new Error('Not allowed by CORS'));
+    },
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
@@ -982,20 +1000,30 @@ app.post('/refresh-data', async (req, res) => {
     }
 
     // רענון סכימה לפני שליפה
-    await refreshSchema(); // Changed from refreshSchema() to loadSchemaOnce()
+    await refreshSchema();
 
     const rows = await query(sql);
 
-    log(`[REFRESH] SQL result: ${rows.length} rows. Sample: ${rows.length ? JSON.stringify(rows.slice(0,2)) : '[]'}`);
+    log(`[REFRESH] SQL result: ${rows.length} rows`);
 
     if (!rows.length) {
       sendStatus(req.body.messageId, 'no_data', performance.now() - req.body.startTime, 'NoInfo');
       return res.json({ messageId: req.body.messageId, reply: 'לא נמצאו נתונים', data: { columns: [], rows: [] } });
     }
 
-    const columns = Object.keys(rows[0]);
-    const dataRows = rows.map(row => columns.map(col => row[col]));
+    // Convert potential bigint values to number for safe JSON serialization
+    const cleanRows = rows.map(r => {
+      const o = {};
+      for (let k in r) {
+        o[k] = (typeof r[k] === 'bigint') ? Number(r[k]) : r[k];
+      }
+      return o;
+    });
 
+    const columns = Object.keys(cleanRows[0]);
+    const dataRows = cleanRows.map(row => columns.map(col => row[col]));
+
+    log(`[REFRESH] Returning ${dataRows.length} rows, ${columns.length} columns`);
     return res.json({ columns, rows: dataRows });
   } catch (err) {
     log(`[REFRESH] SQL error: ${err.message}`);
@@ -1051,30 +1079,74 @@ setInterval(cleanupSessions, 60 * 60 * 1000);
 
 
 /*━━━━━━━━ HEALTH CHECK ENDPOINT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
+// Handle OPTIONS preflight request for health check
+app.options('/health', (req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Accept',
+    'Access-Control-Max-Age': '86400'
+  });
+  res.status(200).end();
+});
+
 app.get('/health', async (req, res) => {
   try {
-    await refreshSchema(); // Changed from refreshSchema() to loadSchemaOnce()
+    // Set CORS headers explicitly for health check
+    res.set({
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Accept',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+
+    // Quick health checks
+    const startTime = Date.now();
+    await refreshSchema();
     const tablesCount = (await query("SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema='main'"))[0].count;
+    const responseTime = Date.now() - startTime;
     
+    // Check OpenAI API key
+    const hasOpenAI = !!process.env.OPENAI_API_KEY;
+    
+    // Response with detailed health info
     res.json({
       status: 'healthy',
       timestamp: new Date().toISOString(),
+      server: {
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        node_version: process.version,
+        response_time_ms: responseTime
+      },
       database: {
         connected: true,
         tables: tablesCount,
-        schema_loaded: schemaTxt.length > 0
+        schema_loaded: schemaTxt.length > 0,
+        db_file: DUCKDB_PATH
       },
       sessions: {
-        active: sessions.size
+        active: sessions.size,
+        total_cost: Array.from(sessions.values()).reduce((sum, s) => sum + s.totalCost, 0)
       },
       ai: {
-        models: MODELS
+        models: MODELS,
+        api_key_configured: hasOpenAI
+      },
+      endpoints: {
+        chat: '/chat',
+        insights: '/api/insights',
+        health: '/health'
       }
     });
   } catch (error) {
+    logStructured('error', 'health_check_failed', { error: error.message });
     res.status(500).json({
       status: 'unhealthy',
-      error: error.message
+      error: error.message,
+      timestamp: new Date().toISOString()
     });
   }
 });

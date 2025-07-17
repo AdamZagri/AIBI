@@ -1,0 +1,146 @@
+import React, { useState, useMemo } from 'react';
+import { BarChart, Bar, PieChart, Pie, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Code, TableIcon, BarChart3, PieChartIcon, LineChartIcon, Rows } from 'lucide-react';
+
+const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
+
+// Helper to format data for recharts
+const formatDataForChart = (data) => {
+  if (!data || !data.columns || !data.rows) return [];
+  const [keyX, keyY] = data.columns;
+  return data.rows.map(row => ({
+    [keyX]: row[0],
+    [keyY]: row[1],
+  }));
+};
+
+const KpiDisplay = ({ data }) => {
+    if (!data || !data.rows || data.rows.length === 0 || data.rows[0].length === 0) {
+        return <div className="text-center p-4">אין נתונים להצגה</div>;
+    }
+    const value = data.rows[0][0];
+    const label = data.columns[0];
+    const formattedValue = new Intl.NumberFormat('he-IL', { maximumFractionDigits: 0 }).format(value);
+
+    return (
+        <div className="text-center p-6 bg-teal-50 rounded-lg border border-teal-200">
+            <div className="text-4xl font-bold text-teal-700 mb-2">{formattedValue}</div>
+            <div className="text-md text-teal-600">{label}</div>
+        </div>
+    );
+};
+
+export default function Visualization({ viz, data, sql }) {
+    const chartData = useMemo(() => formatDataForChart(data), [data]);
+    const availableTabs = useMemo(() => {
+        const tabs = new Set(['table']);
+        if (viz === 'bar' || viz === 'pie' || viz === 'line') {
+            tabs.add(viz);
+        }
+        return Array.from(tabs);
+    }, [viz]);
+
+    const defaultTab = viz !== 'kpi' && viz !== 'none' ? viz : 'table';
+    
+    if (viz === 'kpi') {
+        return <KpiDisplay data={data} />;
+    }
+
+    if (viz === 'none' || !data || !data.rows || data.rows.length === 0) {
+        return null; // Or a message saying "No visual data"
+    }
+
+    return (
+        <div className="mt-4 p-4 bg-white/70 rounded-lg border border-gray-200 backdrop-blur-sm">
+            <Tabs defaultValue={defaultTab} className="w-full">
+                <div className="flex justify-between items-center mb-2">
+                    <TabsList>
+                        {availableTabs.includes('table') && <TabsTrigger value="table"><TableIcon className="w-4 h-4 mr-2"/>טבלה</TabsTrigger>}
+                        {availableTabs.includes('bar') && <TabsTrigger value="bar"><BarChart3 className="w-4 h-4 mr-2"/>עמודות</TabsTrigger>}
+                        {availableTabs.includes('pie') && <TabsTrigger value="pie"><PieChartIcon className="w-4 h-4 mr-2"/>עוגה</TabsTrigger>}
+                        {availableTabs.includes('line') && <TabsTrigger value="line"><LineChartIcon className="w-4 h-4 mr-2"/>קו</TabsTrigger>}
+                    </TabsList>
+                    
+                    {sql && (
+                        <Dialog>
+                            <DialogTrigger asChild>
+                                <Button variant="ghost" size="sm"><Code className="w-4 h-4 ml-2" /> הצג SQL</Button>
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[625px]">
+                                <DialogHeader>
+                                    <DialogTitle>SQL Query</DialogTitle>
+                                </DialogHeader>
+                                <div dir="ltr" className="mt-4 bg-gray-900 text-white p-4 rounded-md overflow-x-auto text-sm">
+                                    <pre><code>{sql}</code></pre>
+                                </div>
+                            </DialogContent>
+                        </Dialog>
+                    )}
+                </div>
+
+                <TabsContent value="table">
+                    <div className="overflow-auto max-h-96">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    {data.columns.map(col => <TableHead key={col}>{col}</TableHead>)}
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {data.rows.map((row, i) => (
+                                    <TableRow key={i}>
+                                        {row.map((cell, j) => <TableCell key={j}>{typeof cell === 'number' ? cell.toLocaleString('he-IL') : cell}</TableCell>)}
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="bar">
+                     <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={chartData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey={data.columns[0]} angle={-30} textAnchor="end" height={50} />
+                            <YAxis tickFormatter={(value) => new Intl.NumberFormat('he-IL', { notation: 'compact' }).format(value)} />
+                            <Tooltip formatter={(value) => new Intl.NumberFormat('he-IL').format(value)} />
+                            <Legend />
+                            <Bar dataKey={data.columns[1]} fill="#319795" name={data.columns[1]} />
+                        </BarChart>
+                    </ResponsiveContainer>
+                </TabsContent>
+                
+                <TabsContent value="pie">
+                     <ResponsiveContainer width="100%" height={300}>
+                        <PieChart>
+                            <Pie data={chartData} dataKey={data.columns[1]} nameKey={data.columns[0]} cx="50%" cy="50%" outerRadius={100} fill="#8884d8" label>
+                                {chartData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                ))}
+                            </Pie>
+                            <Tooltip formatter={(value) => new Intl.NumberFormat('he-IL').format(value)} />
+                            <Legend />
+                        </PieChart>
+                    </ResponsiveContainer>
+                </TabsContent>
+
+                <TabsContent value="line">
+                    <ResponsiveContainer width="100%" height={300}>
+                        <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey={data.columns[0]} />
+                            <YAxis tickFormatter={(value) => new Intl.NumberFormat('he-IL', { notation: 'compact' }).format(value)} />
+                            <Tooltip formatter={(value) => new Intl.NumberFormat('he-IL').format(value)} />
+                            <Legend />
+                            <Line type="monotone" dataKey={data.columns[1]} stroke="#319795" strokeWidth={2} name={data.columns[1]} />
+                        </LineChart>
+                    </ResponsiveContainer>
+                </TabsContent>
+            </Tabs>
+        </div>
+    );
+}

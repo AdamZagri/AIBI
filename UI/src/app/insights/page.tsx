@@ -5,13 +5,18 @@ import { Box, useDisclosure, Text } from '@chakra-ui/react';
 import SimpleAppShell from '@/components/SimpleAppShell';
 import { Insight } from '@/components/insights/InsightCard';
 import { InsightsOverview } from '@/components/insights/InsightsOverview';
-import { InsightFilters, FilterState } from '@/components/insights/InsightFilters';
+import { InsightDomainFilter, FilterState } from '@/components/insights/InsightDomainFilter';
 import { InsightsList } from '@/components/insights/InsightsList';
 import { InsightDetails } from '@/components/insights/InsightDetails';
 
 export default function InsightsPage() {
   const [insights, setInsights] = useState<Insight[]>([]);
-  const [filters, setFilters] = useState<FilterState>({});
+  const [filters, setFilters] = useState<FilterState>({
+    domains: [],
+    types: [],
+    urgencyLevels: [],
+    statuses: [],
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedInsight, setSelectedInsight] = useState<Insight | null>(null);
@@ -41,10 +46,26 @@ export default function InsightsPage() {
   };
 
   const filteredInsights = insights.filter((ins) => {
-    if (filters.module && ins.module !== filters.module) return false;
-    if (filters.type && ins.insight_type !== filters.type) return false;
-    if (filters.urgency && ins.urgency !== filters.urgency) return false;
-    if (filters.status && ins.status !== filters.status) return false;
+    // Domain filter
+    if (filters.domains.length > 0 && !filters.domains.includes(ins.module)) {
+      return false;
+    }
+    
+    // Type filter
+    if (filters.types.length > 0 && !filters.types.includes(ins.insight_type)) {
+      return false;
+    }
+    
+    // Urgency filter
+    if (filters.urgencyLevels.length > 0 && !filters.urgencyLevels.includes(ins.urgency)) {
+      return false;
+    }
+    
+    // Status filter
+    if (filters.statuses.length > 0 && !filters.statuses.includes(ins.status)) {
+      return false;
+    }
+    
     return true;
   });
 
@@ -140,11 +161,8 @@ export default function InsightsPage() {
     <SimpleAppShell>
       <Box maxW="7xl" mx="auto">
         <InsightsOverview {...stats} />
-        <InsightFilters
-          modules={['מכירות', 'רכש', 'כספים', 'מלאי', 'לקוחות', 'תפעול', 'ייצור', 'משולב']}
-          types={['חריגה', 'מגמה', 'קורלציה', 'הזדמנות', 'סיכון', 'דפוס', 'השוואה']}
-          urgencyLevels={['גבוהה', 'בינונית', 'נמוכה']}
-          statuses={['new', 'reviewed', 'actioned', 'dismissed', 'expired']}
+        <InsightDomainFilter
+          insights={insights}
           onFilterChange={setFilters}
         />
         <InsightsList insights={filteredInsights} onAction={handleAction} onViewDetails={handleViewDetails} />

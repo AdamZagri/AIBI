@@ -21,6 +21,17 @@ import {
   ListItem,
   useToast,
   useDisclosure,
+  Select,
+  VStack,
+  Divider,
+  Flex,
+  NumberInput,
+  NumberInputField,
+  NumberInputStepper,
+  NumberIncrementStepper,
+  NumberDecrementStepper,
+  FormControl,
+  FormLabel,
 } from '@chakra-ui/react';
 import ClarifyDialog from './ClarifyDialog';
 import MessageLog from './MessageLog';
@@ -28,6 +39,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   ViewIcon,
+  SettingsIcon,
 } from '@chakra-ui/icons';
 import {
   FaDatabase,
@@ -39,6 +51,7 @@ import {
   FaTable,
   FaRobot,
   FaListUl,
+  FaFont,
 } from 'react-icons/fa'; // FaListUl will serve as history icon
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -84,6 +97,15 @@ type VizMap = Record<string | number, string | undefined>;
 
 export default function ChatBox() {
   const { data: session } = useSession();
+  
+  // אובייקט זמני אם אין session - יעודכן מגוגל בעתיד
+  const mockSession = {
+    user: {
+      name: 'משתמש מנכ"ל',
+      email: 'ceo@company.com',
+    }
+  };
+
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -91,6 +113,17 @@ export default function ChatBox() {
   const [collapsed, setCollapsed] = useState<Record<string | number, boolean>>({});
   const [overrideViz, setOverrideViz] = useState<VizMap>({});
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+
+  // Font settings states
+  const [fontSize, setFontSize] = useState(14);
+  const [fontFamily, setFontFamily] = useState('inherit');
+
+  // Font settings popover
+  const {
+    isOpen: isFontSettingsOpen,
+    onOpen: openFontSettings,
+    onClose: closeFontSettings,
+  } = useDisclosure();
 
   // ─── Chat history modal state ────────────────────────────────
   const {
@@ -219,7 +252,7 @@ export default function ChatBox() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             message:
-              `שלום.. שמי ${session?.user?.name || session?.user?.email || 'משתמש'}, מנכ״ל החברה. אנא הצג את עצמך בקצרה ותן דוגמאות לשאלות.`,
+              `שלום.. שמי ${session?.user?.name || mockSession?.user?.name || session?.user?.email || mockSession?.user?.email || 'משתמש'}, מנכ״ל החברה. אנא הצג את עצמך בקצרה ותן דוגמאות לשאלות.`,
           }),
         });
         const headerChatId = r.headers.get('X-Chat-Id');
@@ -242,6 +275,44 @@ export default function ChatBox() {
       }
     };
   }, [session]);
+
+  // Load font settings from localStorage on component mount
+  useEffect(() => {
+    const savedFontSize = localStorage.getItem('chatFontSize');
+    const savedFontFamily = localStorage.getItem('chatFontFamily');
+    
+    if (savedFontSize) {
+      setFontSize(parseInt(savedFontSize));
+    }
+    if (savedFontFamily) {
+      setFontFamily(savedFontFamily);
+    }
+  }, []);
+
+  // Save font settings to localStorage when changed
+  const handleFontSizeChange = useCallback((value: number) => {
+    setFontSize(value);
+    localStorage.setItem('chatFontSize', value.toString());
+  }, []);
+
+  const handleFontFamilyChange = useCallback((value: string) => {
+    setFontFamily(value);
+    localStorage.setItem('chatFontFamily', value);
+  }, []);
+
+  // Font options for the select dropdown
+  const fontOptions = [
+    { value: 'inherit', label: 'ברירת מחדל' },
+    { value: 'Arial, sans-serif', label: 'Arial' },
+    { value: 'Georgia, serif', label: 'Georgia' },
+    { value: 'Times New Roman, serif', label: 'Times New Roman' },
+    { value: 'Courier New, monospace', label: 'Courier New' },
+    { value: 'Verdana, sans-serif', label: 'Verdana' },
+    { value: 'Tahoma, sans-serif', label: 'Tahoma' },
+    { value: 'Trebuchet MS, sans-serif', label: 'Trebuchet MS' },
+    { value: 'Impact, sans-serif', label: 'Impact' },
+    { value: 'Comic Sans MS, cursive', label: 'Comic Sans MS' },
+  ];
 
   const send = async () => {
     if (!input.trim()) return;
@@ -431,12 +502,18 @@ export default function ChatBox() {
                     <MessageLog log={m.log} />
                   </HStack>
                   {!isCollapsed ? (
-                    <Text fontSize="sm" whiteSpace="pre-wrap" mt={2}>
+                    <Text 
+                      fontSize={`${fontSize}px`} 
+                      fontFamily={fontFamily} 
+                      whiteSpace="pre-wrap" 
+                      mt={2}
+                    >
                       {m.text}
                     </Text>
                   ) : (
                     <Text
-                      fontSize="sm"
+                      fontSize={`${fontSize - 2}px`}
+                      fontFamily={fontFamily}
                       whiteSpace="nowrap"
                       overflow="hidden"
                       textOverflow="ellipsis"
@@ -510,7 +587,12 @@ export default function ChatBox() {
                   <Box pt={isCollapsed ? 0 : (showVizButtons || m.sql || hasData ? '44px' : 0)}>
                     {!isCollapsed ? (
                       <>
-                        <Text fontSize="sm" whiteSpace="pre-wrap" mb={1}>
+                        <Text 
+                          fontSize={`${fontSize}px`} 
+                          fontFamily={fontFamily} 
+                          whiteSpace="pre-wrap" 
+                          mb={1}
+                        >
                           {m.text}
                         </Text>
                         {hasData && (
@@ -524,7 +606,8 @@ export default function ChatBox() {
                       </>
                     ) : (
                       <Text
-                        fontSize="sm"
+                        fontSize={`${fontSize - 2}px`}
+                        fontFamily={fontFamily}
                         whiteSpace="nowrap"
                         overflow="hidden"
                         textOverflow="ellipsis"
@@ -577,11 +660,95 @@ export default function ChatBox() {
         })}
       </AnimatePresence>
     ),
-    [messages, openPanels, collapsed, overrideViz, handleSelect]
+    [messages, openPanels, collapsed, overrideViz, handleSelect, fontSize, fontFamily]
   );
 
   return (
     <Box flex="1" display="flex" flexDir="column" minH="0">
+      {/* Font Settings - Just the A button */}
+      <Box
+        position="absolute"
+        top={2}
+        right={2}
+        zIndex={30}
+      >
+        <Popover 
+          isOpen={isFontSettingsOpen} 
+          onOpen={openFontSettings} 
+          onClose={closeFontSettings}
+          placement="bottom-end"
+        >
+          <PopoverTrigger>
+            <IconButton
+              aria-label="הגדרות פונט"
+              icon={<Text fontSize="xs" fontWeight="bold">A</Text>}
+              size="xs"
+              variant="ghost"
+              colorScheme="gray"
+              h={6}
+              w={6}
+              bg="white"
+              border="1px solid"
+              borderColor="gray.300"
+              borderRadius="full"
+              _hover={{ bg: "gray.50" }}
+            />
+          </PopoverTrigger>
+          <PopoverContent>
+            <PopoverArrow />
+            <PopoverCloseButton />
+            <PopoverBody>
+              <VStack spacing={4} align="stretch">
+                <FormControl>
+                  <FormLabel fontSize="sm">גודל פונט</FormLabel>
+                  <NumberInput
+                    value={fontSize}
+                    onChange={(_, value) => handleFontSizeChange(value)}
+                    min={10}
+                    max={24}
+                    step={1}
+                  >
+                    <NumberInputField />
+                    <NumberInputStepper>
+                      <NumberIncrementStepper />
+                      <NumberDecrementStepper />
+                    </NumberInputStepper>
+                  </NumberInput>
+                </FormControl>
+                
+                <FormControl>
+                  <FormLabel fontSize="sm">סוג פונט</FormLabel>
+                  <Select
+                    value={fontFamily}
+                    onChange={(e) => handleFontFamilyChange(e.target.value)}
+                    size="sm"
+                  >
+                    {fontOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                </FormControl>
+                
+                <Text fontSize="xs" color="gray.600">
+                  תצוגה מקדימה: 
+                  <Text 
+                    as="span" 
+                    fontSize={`${fontSize}px`} 
+                    fontFamily={fontFamily}
+                    display="block"
+                    mt={1}
+                  >
+                    זהו טקסט לדוגמה
+                  </Text>
+                </Text>
+              </VStack>
+            </PopoverBody>
+          </PopoverContent>
+        </Popover>
+      </Box>
+
       <MotionStack
         flex="1"
         spacing={3}
@@ -627,6 +794,8 @@ export default function ChatBox() {
             onKeyDown={(e) => e.key === 'Enter' && send()}
             placeholder="הקלד…"
             bg="white"
+            fontSize={`${fontSize}px`}
+            fontFamily={fontFamily}
           />
           <Button
             onClick={send}
