@@ -554,52 +554,72 @@ export async function getQueryExamples(filters = {}) {
   }
 }
 
-// טעינת הנחיות פעילות לצ'אט
-export async function getActiveGuidelinesForChat(userEmail = null) {
+// פונקציה מיוחדת לטעינת הנחיות לצ'אט - מערכת + משתמש + דוגמאות פעילות
+export async function getActiveGuidelinesForChat(userEmail) {
+  console.log('📋 getActiveGuidelinesForChat called for user:', userEmail);
+  
   try {
-    const systemGuidelines = await query(`
-      SELECT g.content, g.priority, bm.module_code
+    const queryText = `
+      SELECT g.*, bm.module_name_hebrew, bm.module_code
       FROM ai_guidelines g
       LEFT JOIN business_modules bm ON g.module_id = bm.id
-      WHERE g.category = 'system' 
-        AND g.active = 1 
-        AND g.validation_status = 'approved'
-      ORDER BY g.priority DESC, g.created_at ASC
-    `);
+      WHERE g.active = 1 
+        AND g.category IN ('system', 'user', 'examples')
+        AND (g.user_email = ? OR g.user_email IS NULL OR g.category = 'system')
+      ORDER BY 
+        CASE g.category 
+          WHEN 'user' THEN 1 
+          WHEN 'system' THEN 2 
+          WHEN 'examples' THEN 3 
+        END,
+        g.priority DESC,
+        g.created_at DESC
+    `;
     
-    let userGuidelines = [];
-    if (userEmail) {
-      userGuidelines = await query(`
-        SELECT g.content, g.priority, bm.module_code
-        FROM ai_guidelines g
-        LEFT JOIN business_modules bm ON g.module_id = bm.id
-        WHERE g.category = 'user' 
-          AND g.user_email = ?
-          AND g.active = 1 
-          AND g.validation_status = 'approved'
-        ORDER BY g.priority DESC, g.created_at ASC
-      `, [userEmail]);
-    }
+    const guidelines = db.prepare(queryText).all(userEmail);
     
-    const examples = await query(`
-      SELECT qe.user_question, qe.expected_sql, qe.explanation, bm.module_code
-      FROM query_examples qe
-      LEFT JOIN business_modules bm ON qe.module_id = bm.id
-      WHERE qe.active = 1 AND qe.validated = 1
-      ORDER BY qe.created_at DESC
-      LIMIT 20
-    `);
+    // פורמט הנחיות לצ'אט AI
+    const formatted = {
+      system: [],
+      user: [],
+      examples: []
+    };
+    
+    guidelines.forEach(g => {
+      const formattedGuideline = {
+        id: g.id,
+        title: g.title,
+        content: g.content,
+        priority: g.priority,
+        module: g.module_name_hebrew,
+        tags: g.tags
+      };
+      
+      if (g.category === 'examples') {
+        // דוגמאות SQL מיוחדות
+        formattedGuideline.question = g.user_question;
+        formattedGuideline.sql = g.expected_sql;
+        formattedGuideline.explanation = g.explanation;
+      }
+      
+      formatted[g.category].push(formattedGuideline);
+    });
+    
+    console.log(`📊 Chat guidelines loaded: ${formatted.system.length} system, ${formatted.user.length} user, ${formatted.examples.length} examples`);
     
     return {
       success: true,
-      data: {
-        system_guidelines: systemGuidelines,
-        user_guidelines: userGuidelines,
-        examples: examples
+      data: formatted,
+      stats: {
+        system: formatted.system.length,
+        user: formatted.user.length,
+        examples: formatted.examples.length,
+        total: guidelines.length
       }
     };
+    
   } catch (error) {
-    console.error('Error getting active guidelines for chat:', error);
+    console.error('💥 Error loading chat guidelines:', error);
     return {
       success: false,
       error: error.message

@@ -7,6 +7,7 @@ import express from 'express';
 import cors from 'cors';
 import duckdb from 'duckdb';
 import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { performance } from 'perf_hooks';
 import {
   stripLongLists,
@@ -33,6 +34,7 @@ const MODELS = {
   builder:     process.env.OPENAI_MODEL_BUILDER     || 'gpt-4o-mini', // בניית SQL
   validator:   process.env.OPENAI_MODEL_VALIDATOR   || 'gpt-4o-mini', // ולידציה מהירה
   summarizer:  process.env.OPENAI_MODEL_SUMMARIZER  || 'gpt-4o-mini', // סיכום/היסטוריה
+  claude:      'claude-3-5-sonnet-20241022' // Claude Sonnet for SQL fallback
 };
 
 /*━━━━━━━━ ENVIRONMENT SETUP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
@@ -263,6 +265,9 @@ const uploadFile = multer({
 
 /*━━━━━━━━ OPENAI SETUP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+/*━━━━━━━━━━━━━━ CLAUDE SETUP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 /*━━━━━━━━ INSIGHTS API SETUP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
 import {
@@ -585,12 +590,26 @@ app.post('/chat', async (req, res) => {
     sessionQueries: session.context.recentQueries.length
   });
 
-  // ── 🎯 CLASSIFICATION PHASE (Moved Up) ─────────────────────────────
+  // ── 🔄 NEW HYBRID ENGINE ─────────────────────────────────────────────
+  
+  // 1️⃣ טעינת הנחיות דינמיות מבסיס הנתונים
+  sendStatus(messageId, 'טעינת הנחיות', performance.now() - startTime, 'NoInfo');
+  const guidelinesResult = await getActiveGuidelinesForChat(session.userEmail);
+  
+  if (!guidelinesResult.success) {
+    console.error('❌ Failed to load guidelines:', guidelinesResult.error);
+    return res.status(500).json({ error: 'Failed to load guidelines' });
+  }
+  
+  const dynamicGuidelines = formatGuidelinesForAI(guidelinesResult.data);
+  console.log(`📋 Loaded guidelines: ${guidelinesResult.stats.total} total`);
+  
+  // 2️⃣ סיווג מהיר - data vs free vs meta
   sendStatus(messageId, 'סיווג שאלה', performance.now() - startTime, 'NoInfo');
   const classifyResp = await openai.chat.completions.create({
     model: MODELS.chat,
     messages: [
-      { role: 'system', content: `Schema:\n${schemaTxt}\n\n${IMPORTANT}\n\n${IMPORTANT_CTI}\n\nהחלט החלטה: data (שאלה נתונית), free (תשובה חופשית), meta (שאלה על השיחה/מערכת).` },
+      { role: 'system', content: `Schema:\n${schemaTxt}\n\n${dynamicGuidelines}\n\nהחלט: data (שאלה נתונית), free (תשובה חופשית), meta (שאלה על השיחה).` },
       { role: 'system', content: STAR_HINT },
       ...session.history.slice(-4).map(m => ({ role: m.role, content: m.content })),
       { role: 'user', content: userQ }
@@ -607,114 +626,77 @@ app.post('/chat', async (req, res) => {
     decision = args.decision;
   }
 
-  // --- Local override: detect meta-questions about previous messages ---
-  // 1) שאלות מטא לגבי הודעות קודמות
+  // Local override: detect meta-questions about previous messages
   const metaPattern = /(מה\s+שאלתי|מה\s+היית[ה]?|הזכר\s+לי)/i;
   if (metaPattern.test(userQ)) {
     decision = 'meta';
   } else {
-    // שאלות על נתונים/SQL שכבר הוצגו
     const historyDataPattern = /(איזה|מה).*?(נתונים|מידע|data|sql|שאלתה|שאילתה).*?(הוצאת|קיבלת|הראית|הצגת|בוצע)/i;
     if (historyDataPattern.test(userQ)) {
       decision = 'meta';
     } else {
-    // 2) שאלות חיזוי / טרנדים – סווג כ-data גם אם המודל פספס
-    const forecastPattern = /(חיזוי|תחזית|forecast|trend|projection|predict|לחזות)/i;
-    if (forecastPattern.test(userQ)) {
-      decision = 'data';
-    }
+      const forecastPattern = /(חיזוי|תחזית|forecast|trend|projection|predict|לחזות)/i;
+      if (forecastPattern.test(userQ)) {
+        decision = 'data';
+      }
     }
   }
 
-  // אחרי שקיבלנו decision מה-AI
   if (session.history.length === 0 && decision === 'meta') {
-    decision = 'free';               // Greeting ראשוני – אל תטפל כ-meta
+    decision = 'free';
   }
-
-  // no manual override – סומכים על החלטת ה-AI בלבד
 
   logStructured('info', 'classification', { decision });
   const decisionLabel = decision === 'free' ? 'תשובה חופשית' : decision === 'data' ? 'שאלה נתונית' : 'מטא';
-  sendStatus(messageId, `התקבלה החלטה: ${decisionLabel}`, performance.now() - startTime, decision);
+  sendStatus(messageId, `החלטה: ${decisionLabel}`, performance.now() - startTime, decision);
 
-  // ── 🔍 META RESPONSE PATH (chat statistics) ──────────────────────────
+  // ── 📥 META RESPONSE PATH ────────────────────────────────────────────
   if (decision === 'meta') {
-    // ראשית הוסף את השאלה הנוכחית להיסטוריה כדי שהאינדקסים יהיו עקביים
     session.history.push({ role: 'user', content: userQ });
 
-    // בדיקה אם המשתמש מבקש שאלה קודמת ספציפית או שאלה מטא כללית
     let reply = '';
     let metaUsage = null;
     let metaCost = 0;
-    // 1) "לפני X שאלות"
-    let offsetMatch = userQ.match(/לפני\s+(\d+)\s+שאל(?:ה|ות)?/i);
-    // 2) "בשאלה הקודמת" / "שאלה קודמת"
-    if (!offsetMatch && /שאלה\s+קודמת|בשאלה\s+הקודמת/i.test(userQ)) {
-      offsetMatch = ['1','1']; // treat as offset 1
-    }
 
-    if (offsetMatch) {
-      const offset = parseInt(offsetMatch[1], 10); // כמה שאלות אחורה
-      const userMessages = session.history.filter(m => m.role === 'user');
-
-      if (offset > 0 && offset < userMessages.length) {
-        const pastQuestion = userMessages[userMessages.length - 1 - offset].content;
-        reply = `השאלה שלך לפני ${offset} שאלות הייתה: "${pastQuestion}"`;
-      } else {
-        reply = `אין מידע על שאלה לפני ${offset} שאלות (יש לך כרגע ${userMessages.length - 1} שאלות קודמות).`;
-      }
-    } else {
-      // תשובת מטא באמצעות AI והיסטוריה
-      const metaRes = await answerMetaWithAI(userQ, session);
-      reply = metaRes.text;
-      metaUsage = metaRes.usage;
-      metaCost = calcCost(MODELS.summarizer, metaRes.usage);
-      session.totalCost += metaCost;
-    }
-
-    // הוסף את תשובת האסיסטנט להיסטוריה
-    session.history.push({ role: 'assistant', content: reply, tokens: metaUsage, model: metaUsage ? MODELS.summarizer : undefined, cost: metaCost || undefined });
-    
-    // שמירה בבסיס הנתונים
-    await saveChatMessage(chatId, {
-      message_id: messageId,
-      role: 'user',
-      content: userQ
+    // Handle meta questions with session history
+    const historyForAI = session.history.slice(-10).map(m => ({ role: m.role, content: m.content }));
+    const metaResp = await openai.chat.completions.create({
+      model: MODELS.summarizer,
+      messages: [
+        { role: 'system', content: 'ענה בקצרה ומדויק לשאלה מטא בהתבסס על היסטוריית השיחה המצורפת.' },
+        { role: 'system', content: `היסטוריה:\n${JSON.stringify(historyForAI)}` },
+        { role: 'user', content: userQ }
+      ]
     });
     
+    reply = metaResp.choices[0].message.content.trim();
+    metaUsage = metaResp.usage;
+    metaCost = calcCost(MODELS.summarizer, metaUsage);
+    
+    session.totalCost += metaCost;
+    session.history.push({ role: 'assistant', content: reply, tokens: metaUsage, model: MODELS.summarizer, cost: metaCost });
+
+    // Save to database
+    await saveChatMessage(chatId, { message_id: messageId, role: 'user', content: userQ });
     await saveChatMessage(chatId, {
       message_id: messageId + '_response',
       role: 'assistant',
       content: reply,
-      model_used: metaUsage ? MODELS.summarizer : undefined,
+      model_used: MODELS.summarizer,
       tokens_used: metaUsage?.total_tokens,
-      cost: metaCost || 0
+      cost: metaCost
     });
-    
-    await maintainAiHistory(session);
 
-    // הגבלת היסטוריה ל-12 הודעות אחרונות
     if (session.history.length > HISTORY_LIMIT) {
       session.history = session.history.slice(-HISTORY_LIMIT);
     }
 
     const totalTime = performance.now() - startTime;
     sendStatus(messageId, 'תשובת מטא', totalTime, 'NoInfo');
-    sendStatus(messageId, `סה"כ זמן: ${(totalTime/1000).toFixed(2)} שניות`, totalTime, 'NoInfo');
+    sendStatus(messageId, `זמן: ${(totalTime/1000).toFixed(2)}s`, totalTime, 'NoInfo');
 
     const emptyData = { columns: [], rows: [] };
-    return res.json({ messageId, data: emptyData, vizType: 'none', explanation: 'אין נתונים להצגה', reply, processingTime: Math.round(totalTime) });
-  }
-
-  // ── 📥 ATTEMPT ANSWER FROM CACHE ────────────────────────────────
-  if (decision === 'data') {
-    const cacheAns = await tryAnswerFromCache(userQ, session);
-    if (cacheAns) {
-      session.history.push({ role: 'assistant', content: cacheAns });
-      if (session.history.length > HISTORY_LIMIT) session.history = session.history.slice(-HISTORY_LIMIT);
-      const totalTime = performance.now() - startTime;
-      return res.json({ messageId, reply: cacheAns, data: { columns: [], rows: [] }, cache: true, processingTime: Math.round(totalTime) });
-    }
+    return res.json({ messageId, data: emptyData, vizType: 'none', explanation: 'אין נתונים', reply, processingTime: Math.round(totalTime) });
   }
 
   // ── 💬 FREE RESPONSE PATH ─────────────────────────────────────────────
@@ -724,7 +706,7 @@ app.post('/chat', async (req, res) => {
     const freeResp = await openai.chat.completions.create({
       model: MODELS.chat,
       messages: [
-        { role: 'system', content: 'אתה עוזר BI חכם למערכת ERP. תן תשובות קצרות ומועילות.' },
+        { role: 'system', content: `אתה עוזר BI חכם למערכת ERP. תן תשובות קצרות ומועילות.\n\n${dynamicGuidelines}` },
         ...session.history.slice(-6).map(m => ({ role: m.role, content: m.content }))
       ],
       temperature: 0.3
@@ -735,13 +717,8 @@ app.post('/chat', async (req, res) => {
     session.totalCost += costFree;
     session.history.push({ role: 'assistant', content: reply, tokens: freeResp.usage, model: MODELS.chat, cost: costFree });
     
-    // שמירה בבסיס הנתונים
-    await saveChatMessage(chatId, {
-      message_id: messageId,
-      role: 'user',
-      content: userQ
-    });
-    
+    // Save to database
+    await saveChatMessage(chatId, { message_id: messageId, role: 'user', content: userQ });
     await saveChatMessage(chatId, {
       message_id: messageId + '_response',
       role: 'assistant',
@@ -753,37 +730,19 @@ app.post('/chat', async (req, res) => {
     
     await maintainAiHistory(session);
     
-    // Keep history manageable
     if (session.history.length > HISTORY_LIMIT) {
       session.history = session.history.slice(-HISTORY_LIMIT);
     }
     
     const totalTime = performance.now() - startTime;
-    logStructured('success', 'free_response_completed', { 
-      responseLength: reply.length,
-      totalTime: Math.round(totalTime)
-    });
-    // ADD SUMMARY LOG
-    logQuerySummary({
-      messageId,
-      path: 'free',
-      userQuestion: userQ,
-      sql: null,
-      executionTime: 0,
-      processingTime: Math.round(totalTime),
-      rows: 0,
-      sampleRows: [],
-      reply
-    });
-    sendStatus(messageId, 'סיום עיבוד', totalTime, 'NoInfo'); // <--- חדש: שלח סיום
-    sendStatus(messageId, `סה"כ זמן: ${(totalTime/1000).toFixed(2)} שניות`, totalTime, 'NoInfo'); // <--- חדש: שלח זמן כולל
+    sendStatus(messageId, 'תשובה חופשית', totalTime, 'NoInfo');
+    sendStatus(messageId, `זמן: ${(totalTime/1000).toFixed(2)}s`, totalTime, 'NoInfo');
+    
     const emptyData = { columns: [], rows: [] };
-    return res.json({ messageId, data: emptyData, vizType: 'none', explanation: 'אין נתונים להצגה', reply, processingTime: Math.round(totalTime) });
+    return res.json({ messageId, data: emptyData, vizType: 'none', explanation: 'אין נתונים', reply, processingTime: Math.round(totalTime) });
   }
 
-  // ── 🚀 FAST SQL PATH ─────────────────────────────────────────────
-  sendStatus(messageId, 'ניסיון Fast SQL', performance.now() - startTime, 'NoInfo');
-  let fastSql = '', fastSqlError = null, fastData = null;
+/*━━━━━━━━ REFRESH DATA ENDPOINT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
   try {
     // תמיד שלח את קובץ IMPORTANT ו-IMPORTANT_CTI במסלול Fast – מונע החסרת עמודות
     const sysFast = IMPORTANT + (IMPORTANT_CTI ? `\n${IMPORTANT_CTI}` : '');
@@ -1211,6 +1170,216 @@ ${explanation ? `הסבר טכני: ${explanation}` : ''}` }
   // Store last successful SQL for continuation context
   session.lastSqlSuccess = sql || fastSql;
 
+  // ── ⚡ NEW HYBRID DATA ENGINE ─────────────────────────────────────────
+  if (decision === 'data') {
+    session.history.push({ role: 'user', content: userQ });
+    
+    let sql = '';
+    let data = null;
+    let executionTime = 0;
+    let aiModel = '';
+    let aiUsage = null;
+    let aiCost = 0;
+    let fastSuccess = false;
+    
+    // 3️⃣ Fast Path++ עם OpenAI - schema מלא + הנחיות דינמיות
+    sendStatus(messageId, 'Fast Path++ (OpenAI)', performance.now() - startTime, 'NoInfo');
+    
+    try {
+      const historyContext = session.getRecentContext();
+      const lastSqlContext = session.lastSqlSuccess ? `SQL קודם: ${session.lastSqlSuccess}` : '';
+      
+      const fastResp = await openai.chat.completions.create({
+        model: MODELS.chat,
+        messages: [
+          { 
+            role: 'system', 
+            content: `אתה מומחה SQL לDuckDB. החזר רק SQL תקין ללא הסברים.
+
+Schema מלא:
+${schemaTxt}
+
+${dynamicGuidelines}
+
+${historyContext}
+${lastSqlContext}
+
+כללים קריטיים:
+1. רק SELECT - אסור ALTER/INSERT/UPDATE/DELETE
+2. בדוק בקפדנות שכל העמודות קיימות בסכמה
+3. השתמש בשמות מדויקים כפי שמופיעים בסכמה
+4. החזר רק SQL, ללא markdown` 
+          },
+          { role: 'user', content: `שאלה: ${userQ}` }
+        ],
+        temperature: 0.1
+      });
+
+      let fastSql = fastResp.choices[0].message.content.trim();
+      
+      // Clean SQL from markdown
+      if (fastSql.includes('```sql')) {
+        fastSql = fastSql.split('```sql')[1].split('```')[0].trim();
+      } else if (fastSql.includes('```')) {
+        fastSql = fastSql.split('```')[1].split('```')[0].trim();
+      }
+      
+      console.log(`🚀 Fast Path++ SQL: ${fastSql.substring(0, 100)}...`);
+      
+      // Execute SQL
+      const result = await executeWithRetry(fastSql);
+      data = result;
+      executionTime = result.executionTime;
+      sql = fastSql;
+      aiModel = MODELS.chat;
+      aiUsage = fastResp.usage;
+      aiCost = calcCost(MODELS.chat, aiUsage);
+      fastSuccess = true;
+      
+      console.log(`✅ Fast Path++ הצליח! ${data.rows.length} שורות`);
+      
+    } catch (fastError) {
+      console.log(`❌ Fast Path++ נכשל: ${fastError.message}`);
+      
+      // 4️⃣ Claude Sonnet Fallback
+      sendStatus(messageId, 'Claude Fallback', performance.now() - startTime, 'NoInfo');
+      
+      try {
+        const historyContext = session.getRecentContext();
+        const claudeResult = await callClaudeForSQL(userQ, schemaTxt, dynamicGuidelines, historyContext);
+        
+        console.log(`🤖 Claude SQL: ${claudeResult.sql.substring(0, 100)}...`);
+        
+        // Execute Claude's SQL
+        const result = await executeWithRetry(claudeResult.sql);
+        data = result;
+        executionTime = result.executionTime;
+        sql = claudeResult.sql;
+        aiModel = MODELS.claude;
+        aiUsage = claudeResult.usage;
+        aiCost = calcCost('claude-3-5-sonnet-20241022', aiUsage); // Claude pricing
+        
+        console.log(`✅ Claude הצליח! ${data.rows.length} שורות`);
+        
+      } catch (claudeError) {
+        console.error(`💥 Claude גם נכשל: ${claudeError.message}`);
+        
+        // Both failed - return error
+        const errorMsg = `שני המנועים נכשלו:\nOpenAI: ${fastError.message}\nClaude: ${claudeError.message}`;
+        return res.status(500).json({ 
+          error: errorMsg,
+          messageId,
+          processingTime: Math.round(performance.now() - startTime)
+        });
+      }
+    }
+    
+    // 5️⃣ הכנת תשובה וסיכום
+    sendStatus(messageId, 'הכנת תשובה', performance.now() - startTime, 'NoInfo');
+    
+    const cleanRows = data.rows.map(row => {
+      const o = {};
+      for (const [key, val] of Object.entries(row)) {
+        if (typeof val === 'bigint') o[key] = Number(val);
+        else if (val instanceof Date) o[key] = val.toISOString().slice(0, 10);
+        else o[key] = val;
+      }
+      return o;
+    });
+
+    const viz = chooseViz(cleanRows);
+    
+    // Generate business summary
+    const summaryResp = await openai.chat.completions.create({
+      model: MODELS.summarizer,
+      messages: [
+        { role: 'system', content: 'סכם בתובנות עסקיות קצרות. התייחס למידע עצמו ואל תספק מידע כללי.' },
+        { role: 'user', content: `השאילתה: "${userQ}"\nתוצאות (${cleanRows.length} שורות):\n${JSON.stringify(cleanRows.slice(0, 2), null, 2)}` }
+      ],
+      temperature: 0.3
+    });
+
+    const reply = summaryResp.choices[0].message.content.trim();
+    const costSummary = calcCost(MODELS.summarizer, summaryResp.usage);
+    
+    // Total costs
+    session.totalCost += aiCost + costSummary;
+    
+    // Save to session
+    const ctx = extractContext(cleanRows);
+    session.lastContext = ctx;
+    session.lastSqlSuccess = sql;
+    session.history.push({ 
+      role: 'assistant', 
+      content: stripLongLists(reply), 
+      sql: sql, 
+      data: cleanRows.slice(0, 200), 
+      tokens: aiUsage, 
+      model: aiModel, 
+      cost: aiCost + costSummary 
+    });
+    
+    if (Object.keys(ctx).length) {
+      session.history.push({ role: 'system', content: `CTX: ${JSON.stringify(ctx)}` });
+    }
+    
+    // Save to database
+    await saveChatMessage(chatId, { message_id: messageId, role: 'user', content: userQ });
+    await saveChatMessage(chatId, {
+      message_id: messageId + '_response',
+      role: 'assistant',
+      content: reply,
+      sql_query: sql,
+      data_json: cleanRows.slice(0, 200),
+      viz_type: viz,
+      model_used: aiModel,
+      tokens_used: aiUsage?.total_tokens,
+      cost: aiCost + costSummary,
+      execution_time: executionTime,
+      processing_time: performance.now() - startTime
+    });
+    
+    await maintainAiHistory(session);
+
+    if (session.history.length > HISTORY_LIMIT) {
+      session.history = session.history.slice(-HISTORY_LIMIT);
+    }
+
+    const processingTime = Math.round(performance.now() - startTime);
+    const engineUsed = fastSuccess ? 'OpenAI Fast++' : 'Claude Fallback';
+    sendStatus(messageId, `הושלם (${engineUsed})`, processingTime, 'NoInfo');
+    sendStatus(messageId, `זמן: ${(processingTime/1000).toFixed(2)}s`, processingTime, 'NoInfo');
+    
+    // Log performance
+    logQuerySummary({
+      messageId,
+      path: fastSuccess ? 'fast_plus' : 'claude_fallback',
+      userQuestion: userQ,
+      sql,
+      executionTime: Math.round(executionTime),
+      processingTime,
+      rows: data.rows.length,
+      sampleRows: cleanRows.slice(0, 2),
+      reply,
+      aiModel,
+      cost: aiCost + costSummary
+    });
+
+    return res.json({
+      messageId,
+      sql,
+      viz,
+      data: { columns: Object.keys(cleanRows[0] || {}), rows: cleanRows.map(row => Object.values(row)) },
+      reply,
+      metadata: {
+        hybridEngine: true,
+        engineUsed,
+        executionTime: Math.round(executionTime),
+        processingTime,
+        totalCost: aiCost + costSummary
+      }
+    });
+  }
 });
 
 /*━━━━━━━━ REFRESH DATA ENDPOINT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
@@ -2740,6 +2909,121 @@ ${content}
       success: false,
       error: error.message
     };
+  }
+}
+
+// GET /api/guidelines/chat/:userEmail - טעינת הנחיות פעילות לצ'אט
+app.get('/api/guidelines/chat/:userEmail', async (req, res) => {
+  console.log('💬 GET /api/guidelines/chat - טעינת הנחיות לצ\'אט');
+  
+  try {
+    const userEmail = req.params.userEmail;
+    console.log('🔧 Loading chat guidelines for user:', userEmail);
+    
+    const result = await getActiveGuidelinesForChat(userEmail);
+    
+    if (result.success) {
+      console.log(`✅ הנחיות צ'אט נטענו: ${result.stats.total} הנחיות`);
+      res.json(result);
+    } else {
+      console.log('❌ שגיאה בטעינת הנחיות צ\'אט:', result.error);
+      res.status(500).json(result);
+    }
+  } catch (error) {
+    console.log('💥 Exception in GET /api/guidelines/chat:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal server error' 
+    });
+  }
+});
+
+/*━━━━━━━━ GUIDELINES FORMATTING HELPER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
+function formatGuidelinesForAI(guidelinesData) {
+  let formatted = '\n--- AI GUIDELINES ---\n';
+  
+  // הנחיות משתמש (עדיפות גבוהה)
+  if (guidelinesData.user && guidelinesData.user.length > 0) {
+    formatted += '\n🎯 USER GUIDELINES (בעדיפות עליונה):\n';
+    guidelinesData.user.forEach((g, i) => {
+      formatted += `${i + 1}. ${g.title}: ${g.content}\n`;
+    });
+  }
+  
+  // הנחיות מערכת
+  if (guidelinesData.system && guidelinesData.system.length > 0) {
+    formatted += '\n🏢 SYSTEM GUIDELINES:\n';
+    guidelinesData.system.forEach((g, i) => {
+      formatted += `${i + 1}. ${g.title}: ${g.content}\n`;
+    });
+  }
+  
+  // דוגמאות SQL
+  if (guidelinesData.examples && guidelinesData.examples.length > 0) {
+    formatted += '\n📝 SQL EXAMPLES:\n';
+    guidelinesData.examples.forEach((g, i) => {
+      if (g.question && g.sql) {
+        formatted += `${i + 1}. Q: ${g.question}\n   SQL: ${g.sql}\n   הסבר: ${g.explanation || 'לא סופק'}\n`;
+      }
+    });
+  }
+  
+  formatted += '\n--- END GUIDELINES ---\n';
+  return formatted;
+}
+
+/*━━━━━━━━ CLAUDE API HELPER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
+async function callClaudeForSQL(userQuestion, schema, guidelines, historyContext = '') {
+  try {
+    const systemPrompt = `אתה מומחה SQL לDuckDB. החזר רק SQL תקין ללא הסברים.
+
+Schema:
+${schema}
+
+${guidelines}
+
+${historyContext ? `Context מהשיחה: ${historyContext}` : ''}
+
+כללים חשובים:
+1. השתמש רק ב-SELECT (אסור ALTER/INSERT/UPDATE/DELETE)
+2. בדוק שכל העמודות קיימות בסכמה
+3. השתמש בשמות עמודות מדויקים כפי שמופיעים בסכמה
+4. החזר רק את ה-SQL, ללא markdown או הסברים`;
+
+    const response = await anthropic.messages.create({
+      model: MODELS.claude,
+      max_tokens: 4000,
+      temperature: 0.1,
+      messages: [
+        {
+          role: 'user',
+          content: `${systemPrompt}\n\nשאלה: ${userQuestion}`
+        }
+      ]
+    });
+
+    const sqlContent = response.content[0]?.text?.trim() || '';
+    
+    // ניקוי SQL מmarkdown אם יש
+    let cleanSQL = sqlContent;
+    if (cleanSQL.includes('```sql')) {
+      cleanSQL = cleanSQL.split('```sql')[1].split('```')[0].trim();
+    } else if (cleanSQL.includes('```')) {
+      cleanSQL = cleanSQL.split('```')[1].split('```')[0].trim();
+    }
+    
+    return {
+      sql: cleanSQL,
+      usage: {
+        input_tokens: response.usage?.input_tokens || 0,
+        output_tokens: response.usage?.output_tokens || 0,
+        total_tokens: (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0)
+      }
+    };
+    
+  } catch (error) {
+    console.error('💥 Claude API error:', error);
+    throw error;
   }
 }
 
