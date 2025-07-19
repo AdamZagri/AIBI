@@ -17,12 +17,6 @@ import {
 import https from 'https';
 import { WebSocketServer } from 'ws';
 import { calcCost } from './costUtils.js';
-import multer from 'multer';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-import Database from 'better-sqlite3';
-import rateLimit from 'express-rate-limit';
-import helmet from 'helmet';
 
 
 /*━━━━━━━━ ENHANCED MODELS CONFIGURATION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
@@ -37,19 +31,6 @@ const MODELS = {
 
 /*━━━━━━━━ ENVIRONMENT SETUP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
 const DUCKDB_PATH = path.resolve('feature_store_heb.duckdb');
-
-// Multer configuration for file uploads
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, 'uploads/'));
-  },
-  filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${file.originalname}`);
-  }
-});
-
 
 /*━━━━━━━━ LOAD HINTS FROM EXTERNAL FILES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
 const STAR_HINT = fs.existsSync('star_hint.txt')
@@ -145,10 +126,8 @@ const sessions = new Map();
 const HISTORY_LIMIT = 500; // מספר מקסימלי של הודעות לשמירה בכל שיחה
 
 class EnhancedSession {
-  constructor(chatId, userEmail = null, userName = null) {
+  constructor(chatId) {
     this.chatId = chatId;
-    this.userEmail = userEmail;
-    this.userName = userName;
     this.history = [];
     this.context = {
       recentQueries: [],
@@ -218,48 +197,12 @@ app.use(
       
       return callback(new Error('Not allowed by CORS'));
     },
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   })
 );
 app.use(express.json({ limit: '1mb' }));
-
-/*━━━━━━━━ MULTER SETUP FOR FILE UPLOADS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
-// Multer configuration for file uploads
-const fileStorage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = path.join(process.cwd(), 'insightUploads');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    // Generate unique filename with timestamp
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const fileName = `${uniqueSuffix}-${file.originalname}`;
-    cb(null, fileName);
-  }
-});
-
-const uploadFile = multer({ 
-  storage: fileStorage,
-  limits: { 
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-    files: 1 
-  },
-  fileFilter: function (req, file, cb) {
-    // Accept only text files
-    if (file.mimetype.startsWith('text/') || 
-        file.originalname.endsWith('.md') || 
-        file.originalname.endsWith('.txt')) {
-      cb(null, true);
-    } else {
-      cb(new Error('רק קבצי טקסט מותרים'));
-    }
-  }
-});
 
 /*━━━━━━━━ OPENAI SETUP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -275,35 +218,6 @@ import {
   searchInsights
 } from './insights_api.mjs';
 
-/*━━━━━━━━ GUIDELINES API SETUP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
-import {
-  getBusinessModules,
-  getGuidelines,
-  getGuidelineById,
-  createGuideline,
-  updateGuideline,
-  deleteGuideline,
-  validateGuideline,
-  createQueryExample,
-  getQueryExamples,
-  getActiveGuidelinesForChat,
-  importGuidelinesFromFile
-} from './guidelines_api.mjs';
-
-/*━━━━━━━━ CHAT HISTORY API SETUP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
-import {
-  createChatSession,
-  saveChatMessage,
-  getUserChatSessions,
-  getChatHistory,
-  updateChatSession,
-  archiveChatSession,
-  deleteChatSession,
-  saveChatMetadata,
-  updateLastAccessed,
-  getChatStats
-} from './chat_history_api.mjs';
-
 log('✅ Enhanced DB initialized with business intelligence');
 console.log('🔌 Insights API endpoints loaded:');
 console.log('   GET /api/insights - קבלת תובנות');
@@ -313,27 +227,6 @@ console.log('   PUT /api/insights/actions/:actionId/status - עדכון פעול
 console.log('   POST /api/insights/:id/feedback - הוספת פידבק');
 console.log('   GET /api/insights/stats - סטטיסטיקות');
 console.log('   GET /api/insights/search - חיפוש');
-
-console.log('🔧 Guidelines API endpoints loaded:');
-console.log('   GET /api/guidelines/modules - קבלת מודולים עסקיים');
-console.log('   GET /api/guidelines - קבלת הנחיות');
-console.log('   GET /api/guidelines/:id - הנחיה יחידה');
-console.log('   POST /api/guidelines - יצירת הנחיה');
-console.log('   PUT /api/guidelines/:id - עדכון הנחיה');
-console.log('   DELETE /api/guidelines/:id - מחיקת הנחיה');
-console.log('   POST /api/guidelines/:id/validate - בדיקת הנחיה באמצעות AI');
-console.log('   GET /api/guidelines/examples - קבלת דוגמאות שאילתות');
-console.log('   POST /api/guidelines/examples - יצירת דוגמה');
-console.log('   GET /api/guidelines/active?userEmail=email - הנחיות פעילות לצ\'אט');
-console.log('   POST /api/guidelines/import - יבוא הנחיות מקבצים');
-
-console.log('💬 Chat History API endpoints loaded:');
-console.log('   GET /api/chat/sessions?userEmail=email - קבלת שיחות משתמש');
-console.log('   GET /api/chat/history/:chatId - קבלת היסטוריית שיחה');
-console.log('   POST /api/chat/new - יצירת שיחה חדשה');
-console.log('   PUT /api/chat/:chatId - עדכון שיחה');
-console.log('   DELETE /api/chat/:chatId - מחיקת שיחה');
-console.log('   GET /api/chat/stats?userEmail=email - סטטיסטיקות שיחות');
 
 /*━━━━━━━━ ENHANCED FUNCTION DEFINITIONS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
 const analyzeQueryFn = {
@@ -509,25 +402,6 @@ app.post('/chat', async (req, res) => {
     // expose so that client can reuse
     res.setHeader('X-Chat-Id', chatId);
     res.setHeader('Access-Control-Expose-Headers', 'X-Chat-Id');
-    
-    logStructured('info', 'new_chat_id_generated', { 
-      chatId: chatId.substring(0, 8),
-      reason: 'no_chat_id_provided'
-    });
-  } else {
-    // Validate that chatId is a valid UUID format
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(chatId)) {
-      logStructured('warn', 'invalid_chat_id_format', { 
-        chatId: chatId.substring(0, 20),
-        generating_new: true
-      });
-      
-      // Generate new chatId if format is invalid
-      chatId = crypto.randomUUID();
-      res.setHeader('X-Chat-Id', chatId);
-      res.setHeader('Access-Control-Expose-Headers', 'X-Chat-Id');
-    }
   }
 
   // messageId is unique per message – for WebSocket status tracking
@@ -543,37 +417,9 @@ app.post('/chat', async (req, res) => {
 
   // Enhanced session management tied to chatId (persistent)
   let session = sessions.get(chatId);
-  const userEmail = req.headers['x-user-email'] || null;
-  const userName = req.headers['x-user-name'] || null;
-  
   if (!session) {
-    session = new EnhancedSession(chatId, userEmail, userName);
+    session = new EnhancedSession(chatId);
     sessions.set(chatId, session);
-    
-    // יצירת session בבסיס הנתונים אם לא קיים
-    await createChatSession(chatId, userEmail, userName);
-    
-    logStructured('info', 'new_session_created', { 
-      chatId: chatId.substring(0, 8),
-      userEmail: userEmail || 'unknown',
-      total_sessions: sessions.size
-    });
-  } else {
-    // עדכון user info אם חסר
-    if (userEmail && !session.userEmail) {
-      session.userEmail = userEmail;
-      session.userName = userName;
-    }
-    
-    // עדכון last accessed
-    await updateLastAccessed(chatId);
-    
-    logStructured('debug', 'session_accessed', { 
-      chatId: chatId.substring(0, 8),
-      userEmail: session.userEmail || 'unknown',
-      messages_count: session.history.length,
-      cost: session.totalCost
-    });
   }
 
   await refreshSchema();
@@ -674,23 +520,6 @@ app.post('/chat', async (req, res) => {
 
     // הוסף את תשובת האסיסטנט להיסטוריה
     session.history.push({ role: 'assistant', content: reply, tokens: metaUsage, model: metaUsage ? MODELS.summarizer : undefined, cost: metaCost || undefined });
-    
-    // שמירה בבסיס הנתונים
-    await saveChatMessage(chatId, {
-      message_id: messageId,
-      role: 'user',
-      content: userQ
-    });
-    
-    await saveChatMessage(chatId, {
-      message_id: messageId + '_response',
-      role: 'assistant',
-      content: reply,
-      model_used: metaUsage ? MODELS.summarizer : undefined,
-      tokens_used: metaUsage?.total_tokens,
-      cost: metaCost || 0
-    });
-    
     await maintainAiHistory(session);
 
     // הגבלת היסטוריה ל-12 הודעות אחרונות
@@ -734,23 +563,6 @@ app.post('/chat', async (req, res) => {
     const costFree = calcCost(MODELS.chat, freeResp.usage);
     session.totalCost += costFree;
     session.history.push({ role: 'assistant', content: reply, tokens: freeResp.usage, model: MODELS.chat, cost: costFree });
-    
-    // שמירה בבסיס הנתונים
-    await saveChatMessage(chatId, {
-      message_id: messageId,
-      role: 'user',
-      content: userQ
-    });
-    
-    await saveChatMessage(chatId, {
-      message_id: messageId + '_response',
-      role: 'assistant',
-      content: reply,
-      model_used: MODELS.chat,
-      tokens_used: freeResp.usage?.total_tokens,
-      cost: costFree
-    });
-    
     await maintainAiHistory(session);
     
     // Keep history manageable
@@ -854,28 +666,6 @@ ${JSON.stringify(cleanRows.slice(0, 2), null, 2)}` }
       session.lastContext = ctx;
       session.history.push({ role: 'assistant', content: stripLongLists(reply), sql: fastSql, data: cleanRows.slice(0, 200), tokens: summaryResp.usage, model: MODELS.summarizer, cost: costFast });
       if (Object.keys(ctx).length) session.history.push({ role: 'system', content: `CTX: ${JSON.stringify(ctx)}` });
-      
-      // שמירה בבסיס הנתונים
-      await saveChatMessage(chatId, {
-        message_id: messageId,
-        role: 'user',
-        content: userQ
-      });
-      
-      await saveChatMessage(chatId, {
-        message_id: messageId + '_response',
-        role: 'assistant',
-        content: reply,
-        sql_query: fastSql,
-        data_json: cleanRows.slice(0, 200),
-        viz_type: viz,
-        model_used: MODELS.summarizer,
-        tokens_used: summaryResp.usage?.total_tokens,
-        cost: costFast,
-        execution_time: execTime,
-        processing_time: performance.now() - startTime
-      });
-      
       await maintainAiHistory(session);
 
       // Ensure history length is bounded
@@ -1135,29 +925,8 @@ ${explanation ? `הסבר טכני: ${explanation}` : ''}` }
   session.totalCost += costPipe;
   session.history.push({ role: 'assistant', content: stripLongLists(reply), sql: sql, data: limitedRowsPipe, tokens: summaryResp.usage, model: MODELS.summarizer, cost: costPipe });
   if (Object.keys(ctxPipe).length) session.history.push({ role: 'system', content: `CTX: ${JSON.stringify(ctxPipe)}` });
+  session.history.push({ role: 'assistant', content: stripLongLists(reply), sql: sql, data: limitedRowsPipe, tokens: summaryResp.usage, model: MODELS.summarizer, cost: costPipe });
   session.lastData = { sql, rows: limitedRowsPipe, columns: cols };
-  
-  // שמירה בבסיס הנתונים
-  await saveChatMessage(chatId, {
-    message_id: messageId,
-    role: 'user',
-    content: userQ
-  });
-  
-  await saveChatMessage(chatId, {
-    message_id: messageId + '_response',
-    role: 'assistant',
-    content: reply,
-    sql_query: sql,
-    data_json: limitedRowsPipe,
-    viz_type: viz,
-    model_used: MODELS.summarizer,
-    tokens_used: summaryResp.usage?.total_tokens,
-    cost: costPipe,
-    execution_time: executionTime,
-    processing_time: Math.round(performance.now() - startTime)
-  });
-  
   await maintainAiHistory(session);
   if (session.history.length > HISTORY_LIMIT) {
     session.history = session.history.slice(-HISTORY_LIMIT);
@@ -1291,37 +1060,16 @@ const SESSION_TTL = 24 * 60 * 60 * 1000; // 24 hours
 function cleanupSessions() {
   const now = Date.now();
   let cleaned = 0;
-  const sessionDetails = [];
   
   for (const [chatId, session] of sessions) {
-    const age = now - session.lastAccess;
-    sessionDetails.push({
-      chatId: chatId.substring(0, 8),
-      age_hours: Math.round(age / (1000 * 60 * 60)),
-      messages: session.history.length,
-      cost: session.totalCost
-    });
-    
-    if (age > SESSION_TTL) {
+    if (now - session.lastAccess > SESSION_TTL) {
       sessions.delete(chatId);
       cleaned++;
     }
   }
   
   if (cleaned > 0) {
-    logStructured('info', 'session_cleanup', { 
-      cleaned, 
-      remaining: sessions.size,
-      total_sessions_before: cleaned + sessions.size
-    });
-  }
-  
-  // Log active sessions summary every hour
-  if (sessions.size > 0) {
-    logStructured('info', 'active_sessions', {
-      count: sessions.size,
-      sessions: sessionDetails.slice(0, 10) // Log first 10 sessions
-    });
+    logStructured('info', 'session_cleanup', { cleaned, remaining: sessions.size });
   }
 }
 
@@ -1329,215 +1077,6 @@ function cleanupSessions() {
 setInterval(cleanupSessions, 60 * 60 * 1000);
 
 
-
-/*━━━━━━━━ CHAT HISTORY API ROUTES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
-
-// GET /api/chat/sessions - קבלת שיחות המשתמש
-app.get('/api/chat/sessions', async (req, res) => {
-  console.log('💬 GET /api/chat/sessions - קבלת שיחות משתמש');
-  
-  try {
-    const userEmail = req.query.userEmail || req.headers['x-user-email'];
-    const limit = parseInt(req.query.limit) || 20;
-    
-    console.log('🔧 Fetching sessions for user:', userEmail);
-    const result = await getUserChatSessions(userEmail, limit);
-    
-    if (result.success) {
-      console.log(`✅ שיחות נמצאו: ${result.data.length} שיחות`);
-      res.json(result);
-    } else {
-      console.log('❌ שגיאה בקבלת שיחות:', result.error);
-      res.status(500).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in GET /api/chat/sessions:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// GET /api/chat/history/:chatId - קבלת היסטוריית שיחה מלאה
-app.get('/api/chat/history/:chatId', async (req, res) => {
-  console.log(`💬 GET /api/chat/history/${req.params.chatId} - קבלת היסטוריית שיחה`);
-  
-  try {
-    const chatId = req.params.chatId;
-    
-    console.log('🔧 Fetching chat history for:', chatId);
-    const result = await getChatHistory(chatId);
-    
-    if (result.success) {
-      console.log(`✅ היסטוריה נמצאה: ${result.data.messages.length} הודעות`);
-      res.json(result);
-    } else {
-      console.log('❌ שיחה לא נמצאה:', result.error);
-      res.status(404).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in GET /api/chat/history/:chatId:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// POST /api/chat/new - יצירת שיחה חדשה
-app.post('/api/chat/new', async (req, res) => {
-  console.log('💬 POST /api/chat/new - יצירת שיחה חדשה');
-  
-  try {
-    const userEmail = req.body.userEmail || req.headers['x-user-email'];
-    const userName = req.body.userName || req.headers['x-user-name'];
-    const chatId = crypto.randomUUID();
-    
-    console.log('🔧 Creating new chat session:', chatId, 'for user:', userEmail);
-    const result = await createChatSession(chatId, userEmail, userName);
-    
-    if (result.success) {
-      console.log(`✅ שיחה חדשה נוצרה: ${chatId}`);
-      
-      // יצירת session במנגנון הקיים
-      const session = new EnhancedSession(chatId);
-      sessions.set(chatId, session);
-      
-      res.json({
-        success: true,
-        data: {
-          chatId,
-          userEmail,
-          userName
-        }
-      });
-    } else {
-      console.log('❌ שגיאה ביצירת שיחה:', result.error);
-      res.status(500).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in POST /api/chat/new:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// PUT /api/chat/:chatId - עדכון שיחה
-app.put('/api/chat/:chatId', async (req, res) => {
-  console.log(`💬 PUT /api/chat/${req.params.chatId} - עדכון שיחה`);
-  
-  try {
-    const chatId = req.params.chatId;
-    const updates = req.body;
-    
-    console.log('🔧 Updating chat session:', chatId, 'with:', updates);
-    const result = await updateChatSession(chatId, updates);
-    
-    if (result.success) {
-      console.log(`✅ שיחה עודכנה: ${chatId}`);
-      res.json(result);
-    } else {
-      console.log('❌ שגיאה בעדכון שיחה:', result.error);
-      res.status(400).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in PUT /api/chat/:chatId:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// DELETE /api/chat/:chatId - מחיקת שיחה
-app.delete('/api/chat/:chatId', async (req, res) => {
-  console.log(`💬 DELETE /api/chat/${req.params.chatId} - מחיקת שיחה`);
-  
-  try {
-    const chatId = req.params.chatId;
-    
-    console.log('🔧 Deleting chat session:', chatId);
-    const result = await deleteChatSession(chatId);
-    
-    if (result.success) {
-      console.log(`✅ שיחה נמחקה: ${chatId}`);
-      
-      // מחיקה מהמנגנון הקיים
-      sessions.delete(chatId);
-      
-      res.json(result);
-    } else {
-      console.log('❌ שגיאה במחיקת שיחה:', result.error);
-      res.status(400).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in DELETE /api/chat/:chatId:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// GET /api/chat/stats - סטטיסטיקות שיחות
-app.get('/api/chat/stats', async (req, res) => {
-  console.log('💬 GET /api/chat/stats - סטטיסטיקות שיחות');
-  
-  try {
-    const userEmail = req.query.userEmail || req.headers['x-user-email'];
-    
-    console.log('🔧 Fetching chat stats for user:', userEmail || 'all users');
-    const result = await getChatStats(userEmail);
-    
-    if (result.success) {
-      console.log('✅ סטטיסטיקות נמצאו:', result.data);
-      res.json(result);
-    } else {
-      console.log('❌ שגיאה בקבלת סטטיסטיקות:', result.error);
-      res.status(500).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in GET /api/chat/stats:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-/*━━━━━━━━ DEBUG ENDPOINT FOR SESSIONS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
-app.get('/debug/sessions', (req, res) => {
-  const userEmail = req.query.userEmail;
-  const userStats = getUserStats();
-  
-  let userSessions = [];
-  if (userEmail) {
-    // Find sessions for specific user
-    for (const [chatId, session] of sessions) {
-      if (session.userEmail === userEmail) {
-        userSessions.push({
-          chatId: chatId.substring(0, 8),
-          messages: session.history.length,
-          cost: session.totalCost,
-          lastAccess: new Date(session.lastAccess).toISOString(),
-          age_minutes: Math.round((Date.now() - session.lastAccess) / (1000 * 60))
-        });
-      }
-    }
-  }
-  
-  res.json({
-    timestamp: new Date().toISOString(),
-    total_sessions: sessions.size,
-    unique_users: userStats.uniqueUsers,
-    requested_user: userEmail || 'all',
-    user_sessions: userSessions,
-    all_users: userStats.userDetails
-  });
-});
 
 /*━━━━━━━━ HEALTH CHECK ENDPOINT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
 // Handle OPTIONS preflight request for health check
@@ -1550,42 +1089,6 @@ app.options('/health', (req, res) => {
   });
   res.status(200).end();
 });
-
-// Helper function to get user statistics
-function getUserStats() {
-  const userSessions = new Map();
-  const now = Date.now();
-  
-  for (const [chatId, session] of sessions) {
-    // Extract user info from session if available
-    const user = session.userEmail || 'unknown';
-    if (!userSessions.has(user)) {
-      userSessions.set(user, {
-        sessions: 0,
-        totalMessages: 0,
-        totalCost: 0,
-        lastActivity: 0
-      });
-    }
-    
-    const userStats = userSessions.get(user);
-    userStats.sessions++;
-    userStats.totalMessages += session.history.length;
-    userStats.totalCost += session.totalCost;
-    userStats.lastActivity = Math.max(userStats.lastActivity, session.lastAccess);
-  }
-  
-  return {
-    uniqueUsers: userSessions.size,
-    userDetails: Array.from(userSessions.entries()).map(([email, stats]) => ({
-      email: email === 'unknown' ? 'anonymous' : email.substring(0, 20) + '...',
-      sessions: stats.sessions,
-      messages: stats.totalMessages,
-      cost: Math.round(stats.totalCost * 1000) / 1000,
-      lastActivity: Math.round((now - stats.lastActivity) / (1000 * 60)) // minutes ago
-    }))
-  };
-}
 
 app.get('/health', async (req, res) => {
   try {
@@ -1602,21 +1105,11 @@ app.get('/health', async (req, res) => {
     // Quick health checks
     const startTime = Date.now();
     await refreshSchema();
-    const tablesResult = (await query("SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema='main'"))[0].count;
-    const tablesCount = typeof tablesResult === 'bigint' ? Number(tablesResult) : tablesResult;
+    const tablesCount = (await query("SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema='main'"))[0].count;
     const responseTime = Date.now() - startTime;
     
     // Check OpenAI API key
     const hasOpenAI = !!process.env.OPENAI_API_KEY;
-    
-    // Calculate total cost safely (handle BigInt)
-    const totalCost = Array.from(sessions.values()).reduce((sum, s) => {
-      const cost = typeof s.totalCost === 'bigint' ? Number(s.totalCost) : (s.totalCost || 0);
-      return sum + cost;
-    }, 0);
-    
-    // Get user statistics
-    const userStats = getUserStats();
     
     // Response with detailed health info
     res.json({
@@ -1636,9 +1129,7 @@ app.get('/health', async (req, res) => {
       },
       sessions: {
         active: sessions.size,
-        total_cost: totalCost,
-        unique_users: userStats.uniqueUsers,
-        user_details: userStats.userDetails.slice(0, 5) // Show first 5 users
+        total_cost: Array.from(sessions.values()).reduce((sum, s) => sum + s.totalCost, 0)
       },
       ai: {
         models: MODELS,
@@ -2178,569 +1669,5 @@ app.get('/api/insights/search', async (req, res) => {
     });
   }
 });
-
-/*━━━━━━━━ GUIDELINES API ROUTES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
-
-// GET /api/guidelines/modules - קבלת כל המודולים העסקיים
-app.get('/api/guidelines/modules', async (req, res) => {
-  console.log('🔍 GET /api/guidelines/modules - קבלת מודולים עסקיים');
-  
-  try {
-    const result = await getBusinessModules();
-    
-    if (result.success) {
-      console.log(`✅ מודולים נמצאו: ${result.data.length} מודולים`);
-      res.json(result);
-    } else {
-      console.log('❌ שגיאה בקבלת מודולים:', result.error);
-      res.status(500).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in GET /api/guidelines/modules:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// GET /api/guidelines - קבלת הנחיות עם פילטרים
-app.get('/api/guidelines', async (req, res) => {
-  console.log('🔍 GET /api/guidelines - קבלת הנחיות');
-  console.log('📊 Query parameters:', req.query);
-  
-  try {
-    const filters = {
-      category: req.query.category,
-      module_id: req.query.module_id ? parseInt(req.query.module_id) : undefined,
-      user_email: req.query.user_email,
-      validation_status: req.query.validation_status,
-      active: req.query.active !== undefined ? req.query.active === 'true' : undefined,
-      limit: req.query.limit ? parseInt(req.query.limit) : undefined  // Remove default limit
-    };
-
-    console.log('🔧 Filters applied:', filters);
-    const result = await getGuidelines(filters);
-    
-    if (result.success) {
-      console.log(`✅ הנחיות נמצאו: ${result.data.length} הנחיות`);
-      res.json(result);
-    } else {
-      console.log('❌ שגיאה בקבלת הנחיות:', result.error);
-      res.status(500).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in GET /api/guidelines:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// GET /api/guidelines/:id - קבלת הנחיה יחידה
-app.get('/api/guidelines/:id', async (req, res) => {
-  console.log(`🔍 GET /api/guidelines/${req.params.id} - קבלת הנחיה יחידה`);
-  
-  try {
-    const id = parseInt(req.params.id);
-    
-    if (isNaN(id)) {
-      console.log('❌ Invalid guideline ID:', req.params.id);
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Invalid guideline ID' 
-      });
-    }
-
-    console.log('🔧 Fetching guideline ID:', id);
-    const result = await getGuidelineById(id);
-    
-    if (result.success) {
-      console.log(`✅ הנחיה נמצאה: ${result.data.guideline.title}`);
-      res.json(result);
-    } else {
-      console.log('❌ הנחיה לא נמצאה:', result.error);
-      res.status(404).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in GET /api/guidelines/:id:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// POST /api/guidelines - יצירת הנחיה חדשה
-app.post('/api/guidelines', async (req, res) => {
-  console.log('📝 POST /api/guidelines - יצירת הנחיה חדשה');
-  console.log('📋 Request body:', req.body);
-  
-  try {
-    const result = await createGuideline(req.body);
-    
-    if (result.success) {
-      console.log(`✅ הנחיה נוצרה בהצלחה: ID ${result.data.id}`);
-      res.json(result);
-    } else {
-      console.log('❌ שגיאה ביצירת הנחיה:', result.error);
-      res.status(400).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in POST /api/guidelines:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// PUT /api/guidelines/:id - עדכון הנחיה
-app.put('/api/guidelines/:id', async (req, res) => {
-  console.log(`📝 PUT /api/guidelines/${req.params.id} - עדכון הנחיה`);
-  console.log('📋 Request body:', req.body);
-  
-  try {
-    const id = parseInt(req.params.id);
-    
-    if (isNaN(id)) {
-      console.log('❌ Invalid guideline ID:', req.params.id);
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Invalid guideline ID' 
-      });
-    }
-
-    const result = await updateGuideline(id, req.body);
-    
-    if (result.success) {
-      console.log(`✅ הנחיה עודכנה בהצלחה: ID ${id}`);
-      res.json(result);
-    } else {
-      console.log('❌ שגיאה בעדכון הנחיה:', result.error);
-      res.status(400).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in PUT /api/guidelines/:id:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// DELETE /api/guidelines/:id - מחיקת הנחיה
-app.delete('/api/guidelines/:id', async (req, res) => {
-  console.log(`🗑️ DELETE /api/guidelines/${req.params.id} - מחיקת הנחיה`);
-  
-  try {
-    const id = parseInt(req.params.id);
-    
-    if (isNaN(id)) {
-      console.log('❌ Invalid guideline ID:', req.params.id);
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Invalid guideline ID' 
-      });
-    }
-
-    const result = await deleteGuideline(id);
-    
-    if (result.success) {
-      console.log(`✅ הנחיה נמחקה בהצלחה: ID ${id}`);
-      res.json(result);
-    } else {
-      console.log('❌ שגיאה במחיקת הנחיה:', result.error);
-      res.status(400).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in DELETE /api/guidelines/:id:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// POST /api/guidelines/:id/validate - בדיקת הנחיה באמצעות AI
-app.post('/api/guidelines/:id/validate', async (req, res) => {
-  console.log(`🤖 POST /api/guidelines/${req.params.id}/validate - בדיקת הנחיה באמצעות AI`);
-  
-  try {
-    const id = parseInt(req.params.id);
-    
-    if (isNaN(id)) {
-      console.log('❌ Invalid guideline ID:', req.params.id);
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Invalid guideline ID' 
-      });
-    }
-
-    const result = await validateGuideline(id, openai);
-    
-    if (result.success) {
-      console.log(`✅ הנחיה נבדקה בהצלחה: ID ${id}`);
-      console.log(`🤖 AI recommendation: ${result.data.validation.recommended_status}`);
-      res.json(result);
-    } else {
-      console.log('❌ שגיאה בבדיקת הנחיה:', result.error);
-      res.status(400).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in POST /api/guidelines/:id/validate:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// GET /api/guidelines/examples - קבלת דוגמאות שאילתות
-app.get('/api/guidelines/examples', async (req, res) => {
-  console.log('🔍 GET /api/guidelines/examples - קבלת דוגמאות שאילתות');
-  console.log('📊 Query parameters:', req.query);
-  
-  try {
-    const filters = {
-      module_id: req.query.module_id ? parseInt(req.query.module_id) : undefined,
-      difficulty_level: req.query.difficulty_level,
-      limit: parseInt(req.query.limit) || 20
-    };
-
-    console.log('🔧 Filters applied:', filters);
-    const result = await getQueryExamples(filters);
-    
-    if (result.success) {
-      console.log(`✅ דוגמאות נמצאו: ${result.data.length} דוגמאות`);
-      res.json(result);
-    } else {
-      console.log('❌ שגיאה בקבלת דוגמאות:', result.error);
-      res.status(500).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in GET /api/guidelines/examples:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// POST /api/guidelines/examples - יצירת דוגמה חדשה
-app.post('/api/guidelines/examples', async (req, res) => {
-  console.log('📝 POST /api/guidelines/examples - יצירת דוגמה חדשה');
-  console.log('📋 Request body:', req.body);
-  
-  try {
-    const result = await createQueryExample(req.body);
-    
-    if (result.success) {
-      console.log(`✅ דוגמה נוצרה בהצלחה: ID ${result.data.id}`);
-      res.json(result);
-    } else {
-      console.log('❌ שגיאה ביצירת דוגמה:', result.error);
-      res.status(400).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in POST /api/guidelines/examples:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// GET /api/guidelines/active - קבלת הנחיות פעילות לצ'אט
-app.get('/api/guidelines/active', async (req, res) => {
-  console.log(`🔍 GET /api/guidelines/active - קבלת הנחיות פעילות לצ'אט`);
-  
-  try {
-    const userEmail = req.query.userEmail || null;
-    const result = await getActiveGuidelinesForChat(userEmail);
-    
-    if (result.success) {
-      console.log(`✅ הנחיות פעילות נמצאו: ${result.data.system_guidelines.length} מערכת, ${result.data.user_guidelines.length} משתמש, ${result.data.examples.length} דוגמאות`);
-      res.json(result);
-    } else {
-      console.log('❌ שגיאה בקבלת הנחיות פעילות:', result.error);
-      res.status(500).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in GET /api/guidelines/active:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// POST /api/guidelines/import - יבוא הנחיות מקבצים קיימים
-app.post('/api/guidelines/import', async (req, res) => {
-  console.log('📥 POST /api/guidelines/import - יבוא הנחיות מקבצים');
-  console.log('📋 Request body:', req.body);
-  
-  try {
-    const { filePath, moduleCode, category } = req.body;
-    
-    if (!filePath || !moduleCode) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'filePath and moduleCode are required' 
-      });
-    }
-    
-    const result = await importGuidelinesFromFile(filePath, moduleCode, category);
-    
-    if (result.success) {
-      console.log(`✅ הנחיות יובאו בהצלחה מקובץ: ${filePath}`);
-      res.json(result);
-    } else {
-      console.log('❌ שגיאה ביבוא הנחיות:', result.error);
-      res.status(400).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in POST /api/guidelines/import:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// POST /api/guidelines/import/file - יבוא הנחיות מקובץ שהועלה
-app.post('/api/guidelines/import/file', uploadFile.single('file'), async (req, res) => {
-  console.log('📤 POST /api/guidelines/import/file - יבוא הנחיות מקובץ שהועלה');
-  console.log('📋 Request body:', req.body);
-  console.log('🔍 Debug - userEmail from body:', req.body.userEmail);
-  console.log('📄 File:', req.file);
-  
-  try {
-    if (!req.file) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'No file uploaded' 
-      });
-    }
-    
-    const { category, mode = 'ai', customTitle, userEmail } = req.body;
-    
-    if (!category) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Category is required' 
-      });
-    }
-    
-    // Copy uploaded file to permanent storage before processing
-    const uploadDir = path.join(process.cwd(), 'insightUploads');
-    const permanentPath = path.join(uploadDir, `${Date.now()}-${req.file.originalname}`);
-    fs.copyFileSync(req.file.path, permanentPath);
-    console.log(`💾 קובץ נשמר ב: ${permanentPath}`);
-    
-    // Read the uploaded file
-    const content = fs.readFileSync(req.file.path, 'utf-8');
-    console.log(`📖 קובץ נקרא: ${req.file.originalname}, אורך: ${content.length} תווים`);
-    console.log(`🎯 מצב עיבוד: ${mode}, קטגוריה: ${category}, משתמש: ${userEmail}`);
-    
-    let result;
-    
-    if (mode === 'as-is') {
-      // AS IS mode - create one guideline with all content
-      result = await createAsIsGuideline(content, category, req.file.originalname, customTitle, userEmail);
-    } else {
-      // AI mode - process and create multiple guidelines
-      result = await processFileWithAI(content, category, req.file.originalname, userEmail);
-    }
-    
-    // Clean up uploaded file
-    fs.unlinkSync(req.file.path);
-    
-    if (result.success) {
-      console.log(`✅ הנחיות יובאו בהצלחה: ${result.count} הנחיות`);
-      res.json(result);
-    } else {
-      console.log('❌ שגיאה ביבוא הנחיות:', result.error);
-      res.status(400).json(result);
-    }
-  } catch (error) {
-    console.log('💥 Exception in POST /api/guidelines/import/file:', error);
-    
-    // Clean up uploaded file if it exists
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-    
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// Helper function for AS IS mode
-async function createAsIsGuideline(content, category, filename, customTitle = null, userEmail) {
-  try {
-    console.log('📝 יצירת הנחיה AS IS מתוך הקובץ:', filename);
-    
-    const title = customTitle || `הנחיות מקובץ: ${filename}`;
-    const finalUserEmail = userEmail || 'system@aibi.co.il'; // Default system user
-    const moduleId = 1; // Default module
-    
-    const result = await createGuideline({
-      title,
-      content,
-      category,
-      subcategory: 'imported',
-      module_id: moduleId,
-      user_email: finalUserEmail,
-      priority: 5,
-      active: true,
-      tags: `imported,${filename},as-is`,
-      created_by: `FILE_IMPORT:${filename}`,
-      updated_by: finalUserEmail
-    });
-    
-    if (result.success) {
-      return {
-        success: true,
-        count: 1,
-        guidelines: [result.data],
-        mode: 'as-is',
-        details: {
-          guidelines: [{ title, source: `קובץ: ${filename}` }]
-        }
-      };
-    } else {
-      return {
-        success: false,
-        error: result.error
-      };
-    }
-  } catch (error) {
-    console.log('💥 Error in createAsIsGuideline:', error);
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-}
-
-// Helper function for AI processing mode
-async function processFileWithAI(content, category, filename, userEmail) {
-  try {
-    console.log('🤖 עיבוד הקובץ באמצעות AI:', filename);
-    
-    // Prepare prompt for AI processing
-    const prompt = `
-אנא נתח את הקובץ הבא וצור ממנו הנחיות מובנות לקטגוריה "${category}".
-
-תוכן הקובץ:
-"""
-${content}
-"""
-
-דרישות:
-1. צור הנחיות מובנות ונפרדות מתוך התוכן
-2. כל הנחיה צריכה להיות ספציפית ומועילה
-3. אם יש דוגמאות SQL - כלול אותן
-4. אם יש תובנות עסקיות - הפרד אותן להנחיות נפרדות
-5. השתמש בעברית לכותרות ותיאורים
-
-החזר תשובה בפורמט JSON כזה:
-{
-  "guidelines": [
-    {
-      "title": "כותרת ההנחיה",
-      "content": "תוכן מפורט של ההנחיה",
-      "subcategory": "תת-קטגוריה",
-      "priority": 5,
-      "tags": "תגיות,מופרדות,בפסיקים"
-    }
-  ]
-}
-`;
-
-    const response = await openai.chat.completions.create({
-      model: MODELS.insight,
-      messages: [
-        {
-          role: 'system',
-          content: 'אתה מומחה לניתוח קבצי הנחיות ויצירת הנחיות מובנות למערכת BI.'
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ],
-      temperature: 0.3,
-      max_tokens: 4000
-    });
-
-    const aiResponse = response.choices[0]?.message?.content;
-    console.log('🤖 תגובת AI:', aiResponse?.substring(0, 500) + '...');
-
-    // Parse AI response
-    let cleanResponse = aiResponse;
-    if (cleanResponse.includes('```json')) {
-      cleanResponse = cleanResponse.split('```json')[1].split('```')[0];
-    } else if (cleanResponse.includes('```')) {
-      cleanResponse = cleanResponse.split('```')[1].split('```')[0];
-    }
-
-    const aiData = JSON.parse(cleanResponse.trim());
-    const guidelines = aiData.guidelines || [];
-    
-    console.log(`📊 AI יצר ${guidelines.length} הנחיות`);
-    
-    // Create guidelines in database
-    const createdGuidelines = [];
-    const finalUserEmail = userEmail || 'system@aibi.co.il';
-    const moduleId = 1;
-    
-    for (const guideline of guidelines) {
-      const result = await createGuideline({
-        title: guideline.title,
-        content: guideline.content,
-        category,
-        subcategory: guideline.subcategory || 'ai-processed',
-        module_id: moduleId,
-        user_email: finalUserEmail,
-        priority: guideline.priority || 5,
-        active: true,
-        tags: `${guideline.tags || ''},ai-processed,${filename}`,
-        created_by: `AI_IMPORT:${filename}`,
-        updated_by: finalUserEmail
-      });
-      
-      if (result.success) {
-        createdGuidelines.push({
-          title: guideline.title,
-          source: `AI מעיבוד קובץ: ${filename}`
-        });
-      } else {
-        console.log('❌ שגיאה ביצירת הנחיה:', result.error);
-      }
-    }
-    
-    return {
-      success: true,
-      count: createdGuidelines.length,
-      guidelines: createdGuidelines,
-      mode: 'ai',
-      details: {
-        guidelines: createdGuidelines
-      }
-    };
-    
-  } catch (error) {
-    console.log('💥 Error in processFileWithAI:', error);
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-}
 
 

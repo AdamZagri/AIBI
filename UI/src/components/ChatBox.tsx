@@ -32,6 +32,11 @@ import {
   NumberDecrementStepper,
   FormControl,
   FormLabel,
+  Badge,
+  Tooltip,
+  Heading,
+  useColorModeValue,
+  SimpleGrid,
 } from '@chakra-ui/react';
 import ClarifyDialog from './ClarifyDialog';
 import MessageLog from './MessageLog';
@@ -50,14 +55,13 @@ import {
   FaGripHorizontal,
   FaTable,
   FaRobot,
-  FaListUl,
   FaFont,
-} from 'react-icons/fa'; // FaListUl will serve as history icon
+} from 'react-icons/fa';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSession } from 'next-auth/react';
 import ChartRenderer from './ChartRenderer';
-import ChatHistoryModal from './ChatHistoryModal';
+// Removed ChatHistoryModal import as it's no longer used in ChatBox
 
 // Floating draggable button using framer-motion
 const MotionIconButton = motion(IconButton);
@@ -107,6 +111,7 @@ export default function ChatBox() {
   };
 
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [isClient, setIsClient] = useState(false);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [openPanels, setOpenPanels] = useState<Record<string | number, Panels>>({});
@@ -117,6 +122,127 @@ export default function ChatBox() {
   // Font settings states
   const [fontSize, setFontSize] = useState(14);
   const [fontFamily, setFontFamily] = useState('inherit');
+  
+  // Color theme states
+  const [userBgColor, setUserBgColor] = useState('blue.500');
+  const [botBgColor, setBotBgColor] = useState('gray.50');
+  const [currentChatId, setCurrentChatId] = useState<string>('');
+
+  // Load chat session function
+  const loadChatSession = useCallback(async () => {
+    setLoading(true);
+    try {
+      // בדיקה אם יש chat ID קיים
+      const existingChatId = localStorage.getItem('currentChatId');
+      
+      if (existingChatId) {
+        // טעינת היסטוריה מהשרת החדש
+        console.log('Loading existing chat history for ID:', existingChatId);
+        try {
+          const historyResponse = await fetch(
+            `https://aibi.cloudline.co.il/api/chat/history/${existingChatId}`
+          );
+          
+          if (historyResponse.ok) {
+            const historyResult = await historyResponse.json();
+            
+            if (historyResult.success && historyResult.data.messages.length > 0) {
+              console.log('Chat history loaded:', historyResult.data);
+              
+              // המרה של היסטוריה לפורמט של messages
+              const convertedMessages = [];
+              let messageId = 1;
+              
+              for (const historyMsg of historyResult.data.messages) {
+                convertedMessages.push({
+                  id: messageId++,
+                  text: historyMsg.content,
+                  sender: historyMsg.role === 'user' ? 'user' as const : 'bot' as const,
+                  viz: historyMsg.viz_type,
+                  data: historyMsg.data,
+                  sql: historyMsg.sql_query,
+                  log: []
+                });
+              }
+              
+              if (convertedMessages.length > 0) {
+                setMessages(convertedMessages);
+                setLoading(false);
+                return; // יצאנו מהפונקציה - ההיסטוריה נטענה בהצלחה
+              }
+            }
+          }
+        } catch (historyError) {
+          console.log('Failed to load chat history, starting fresh:', historyError);
+        }
+      }
+      
+      // אם לא הצלחנו לטעון היסטוריה או אין ID - מתחילים עם רשימה ריקה
+      setMessages([]);
+    } catch (error) {
+      console.error('Failed to initialize chat:', error);
+      setMessages([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Monitor chatId changes and reload chat history when it changes
+  useEffect(() => {
+    if (!isClient) return;
+    
+    const checkChatIdChange = () => {
+      const newChatId = localStorage.getItem('currentChatId') || localStorage.getItem('chatId') || '';
+      
+      if (newChatId !== currentChatId) {
+        console.log('Chat ID changed:', currentChatId, '->', newChatId);
+        setCurrentChatId(newChatId);
+        
+        // Clear current messages and reload history
+        setMessages([]);
+        setLoading(true);
+        
+        // Load new chat history
+        setTimeout(() => {
+          loadChatSession();
+        }, 100);
+      }
+    };
+    
+    // Initial check
+    checkChatIdChange();
+    
+    // Listen for custom chatIdChanged event for immediate updates
+    const handleChatIdChanged = (event: CustomEvent) => {
+      console.log('Received chatIdChanged event:', event.detail);
+      checkChatIdChange();
+    };
+    
+    window.addEventListener('chatIdChanged', handleChatIdChanged as EventListener);
+    
+    // Listen for storage changes (when changed from other tabs or components)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'currentChatId' || e.key === 'chatId') {
+        checkChatIdChange();
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Check every 1 second for chatId changes (fallback)
+    const interval = setInterval(checkChatIdChange, 1000);
+    
+    return () => {
+      window.removeEventListener('chatIdChanged', handleChatIdChanged as EventListener);
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, [isClient, currentChatId, loadChatSession]);
+
+  // Scroll to bottom functionality
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   // Font settings popover
   const {
@@ -124,15 +250,6 @@ export default function ChatBox() {
     onOpen: openFontSettings,
     onClose: closeFontSettings,
   } = useDisclosure();
-
-  // ─── Chat history modal state ────────────────────────────────
-  const {
-    isOpen: isHistOpen,
-    onOpen: openHist,
-    onClose: closeHist,
-  } = useDisclosure();
-  const [histData, setHistData] = useState<any>(null);
-  const [histLoading, setHistLoading] = useState(false);
 
   // clarification dialog state
   const [clarifyReq, setClarifyReq] = useState<{ missing: { type: string; name: string }; options: string[] } | null>(null);
@@ -160,38 +277,42 @@ export default function ChatBox() {
     );
   }, []);
 
-  const handleHistoryClick = useCallback(async () => {
-    const chatId = localStorage.getItem('chatId');
-    if (!chatId) {
-      toast({
-        title: 'אין מזהה שיחה להצגה',
-        status: 'warning',
-        duration: 1500,
-      });
-      return;
-    }
-    setHistLoading(true);
-    openHist();
-    try {
-      const r = await fetch(
-        `https://aibi.cloudline.co.il/chat-history?chatId=${chatId}`
-      );
-      const json = await r.json();
-      console.log(json);
-      setHistData(json);
-    } catch (e) {
-      console.error('Failed fetching chat history', e);
-      toast({ title: 'שגיאה בשליפת היסטוריה', status: 'error', duration: 2000 });
-    } finally {
-      setHistLoading(false);
-    }
-  }, [toast, openHist]);
+  // ─── Chat history functions ─────────────────────────────────
+  // Removed as per edit hint
+
 
   const endRef = useRef<HTMLDivElement>(null);
   const msgCount = messages.length;
+  
+  // Auto scroll to bottom when new messages arrive
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [msgCount, loading]);
+
+  // Monitor scroll position to show/hide scroll to bottom button
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      const isNearBottom = scrollTop + clientHeight >= scrollHeight - 100;
+      setShowScrollToBottom(!isNearBottom && messages.length > 0);
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    handleScroll(); // Check initial position
+
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [messages.length]);
+
+  const scrollToBottom = () => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
 
   useEffect(() => {
     // 1. אתחול WebSocket תמיד
@@ -241,32 +362,11 @@ export default function ChatBox() {
       setWsStatus('disconnected');
     }
 
-    // 2. שליחת השאלה הראשונית - רק פעם אחת
+    // 2. טעינת היסטוריה אם קיימת
     if (didInit.current) return;
     didInit.current = true;
-    (async () => {
-      setLoading(true);
-      try {
-        const r = await fetch('https://aibi.cloudline.co.il/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message:
-              `שלום.. שמי ${session?.user?.name || mockSession?.user?.name || session?.user?.email || mockSession?.user?.email || 'משתמש'}, מנכ״ל החברה. אנא הצג את עצמך בקצרה ותן דוגמאות לשאלות.`,
-          }),
-        });
-        const headerChatId = r.headers.get('X-Chat-Id');
-        const { reply, viz, data, sql, chatId: bodyChatId } = await r.json();
-        const finalChatId = headerChatId || bodyChatId;
-        if (finalChatId) localStorage.setItem('chatId', finalChatId);
-        setMessages([{ id: 1, text: reply, sender: 'bot', viz, data, sql }]);
-      } catch (error) {
-        console.error('Failed to initialize chat:', error);
-        setMessages([{ id: 1, text: 'שגיאה בטעינת הצ\'אט. אנא נסה שוב מאוחר יותר.', sender: 'error' }]);
-      } finally {
-        setLoading(false);
-      }
-    })();
+    
+    // Removed loadChatSession()
 
     return () => {
       if (wsRef.current) {
@@ -276,28 +376,73 @@ export default function ChatBox() {
     };
   }, [session]);
 
-  // Load font settings from localStorage on component mount
+  // Client-side hydration fix
   useEffect(() => {
-    const savedFontSize = localStorage.getItem('chatFontSize');
-    const savedFontFamily = localStorage.getItem('chatFontFamily');
+    setIsClient(true);
     
-    if (savedFontSize) {
-      setFontSize(parseInt(savedFontSize));
-    }
-    if (savedFontFamily) {
-      setFontFamily(savedFontFamily);
+    // Load color preferences from localStorage
+    try {
+      const savedFontSize = localStorage.getItem('chatFontSize');
+      const savedFontFamily = localStorage.getItem('chatFontFamily');
+      const savedUserBgColor = localStorage.getItem('chatUserBgColor');
+      const savedBotBgColor = localStorage.getItem('chatBotBgColor');
+      
+      if (savedFontSize) setFontSize(parseInt(savedFontSize));
+      if (savedFontFamily) setFontFamily(savedFontFamily);
+      if (savedUserBgColor) setUserBgColor(savedUserBgColor);
+      if (savedBotBgColor) setBotBgColor(savedBotBgColor);
+    } catch (error) {
+      console.error('Failed to load preferences from localStorage:', error);
     }
   }, []);
+
+
+
+  // Load chat session from localStorage when component mounts
+  useEffect(() => {
+    if (isClient) {
+      // Load existing chat after a short delay to ensure localStorage is accessible
+      setTimeout(() => {
+        loadChatSession();
+      }, 100);
+    }
+  }, [isClient, loadChatSession]);
 
   // Save font settings to localStorage when changed
   const handleFontSizeChange = useCallback((value: number) => {
     setFontSize(value);
-    localStorage.setItem('chatFontSize', value.toString());
+    try {
+      localStorage.setItem('chatFontSize', value.toString());
+    } catch (error) {
+      console.error('Failed to save font size to localStorage:', error);
+    }
   }, []);
 
   const handleFontFamilyChange = useCallback((value: string) => {
     setFontFamily(value);
-    localStorage.setItem('chatFontFamily', value);
+    try {
+      localStorage.setItem('chatFontFamily', value);
+    } catch (error) {
+      console.error('Failed to save font family to localStorage:', error);
+    }
+  }, []);
+
+  const handleUserBgColorChange = useCallback((value: string) => {
+    setUserBgColor(value);
+    try {
+      localStorage.setItem('chatUserBgColor', value);
+    } catch (error) {
+      console.error('Failed to save user background color to localStorage:', error);
+    }
+  }, []);
+
+  const handleBotBgColorChange = useCallback((value: string) => {
+    setBotBgColor(value);
+    try {
+      localStorage.setItem('chatBotBgColor', value);
+    } catch (error) {
+      console.error('Failed to save bot background color to localStorage:', error);
+    }
   }, []);
 
   // Font options for the select dropdown
@@ -313,6 +458,41 @@ export default function ChatBox() {
     { value: 'Impact, sans-serif', label: 'Impact' },
     { value: 'Comic Sans MS, cursive', label: 'Comic Sans MS' },
   ];
+
+  // Color palette options
+  const userColorOptions = [
+    { value: 'blue.500', label: 'כחול', color: 'blue.500' },
+    { value: 'teal.500', label: 'תכלת', color: 'teal.500' },
+    { value: 'green.500', label: 'ירוק', color: 'green.500' },
+    { value: 'purple.500', label: 'סגול', color: 'purple.500' },
+    { value: 'pink.500', label: 'ורוד', color: 'pink.500' },
+    { value: 'orange.500', label: 'כתום', color: 'orange.500' },
+    { value: 'red.500', label: 'אדום', color: 'red.500' },
+    { value: 'gray.600', label: 'אפור כהה', color: 'gray.600' },
+    { value: 'cyan.500', label: 'ציאן', color: 'cyan.500' },
+    { value: 'yellow.600', label: 'צהוב', color: 'yellow.600' },
+    { value: 'indigo.500', label: 'אינדיגו', color: 'indigo.500' },
+    { value: 'lime.500', label: 'ליים', color: 'lime.500' },
+  ];
+
+  const botColorOptions = [
+    { value: 'gray.50', label: 'אפור בהיר', color: 'gray.50' },
+    { value: 'blue.50', label: 'כחול בהיר', color: 'blue.50' },
+    { value: 'teal.50', label: 'תכלת בהיר', color: 'teal.50' },
+    { value: 'green.50', label: 'ירוק בהיר', color: 'green.50' },
+    { value: 'purple.50', label: 'סגול בהיר', color: 'purple.50' },
+    { value: 'pink.50', label: 'ורוד בהיר', color: 'pink.50' },
+    { value: 'orange.50', label: 'כתום בהיר', color: 'orange.50' },
+    { value: 'red.50', label: 'אדום בהיר', color: 'red.50' },
+    { value: 'yellow.50', label: 'צהוב בהיר', color: 'yellow.50' },
+    { value: 'cyan.50', label: 'ציאן בהיר', color: 'cyan.50' },
+    { value: 'white', label: 'לבן', color: 'white' },
+    { value: 'gray.100', label: 'אפור מאוד בהיר', color: 'gray.100' },
+  ];
+
+  // Preview colors for hover effect
+  const [previewUserColor, setPreviewUserColor] = useState<string | null>(null);
+  const [previewBotColor, setPreviewBotColor] = useState<string | null>(null);
 
   const send = async () => {
     if (!input.trim()) return;
@@ -339,13 +519,16 @@ export default function ChatBox() {
         body: JSON.stringify({
           message: input,
           messageId: ts, // <--- זה החלק החשוב!
-          chatId: localStorage.getItem('chatId') || undefined,
+          chatId: localStorage.getItem('currentChatId') || localStorage.getItem('chatId') || undefined,
         }),
       });
       const headerChatId2 = r.headers.get('X-Chat-Id');
       const { reply, viz, data, sql, chatId: bodyChatId2 } = await r.json();
       const finalChatId2 = headerChatId2 || bodyChatId2;
-      if (finalChatId2) localStorage.setItem('chatId', finalChatId2);
+      if (finalChatId2) {
+        localStorage.setItem('chatId', finalChatId2);
+        localStorage.setItem('currentChatId', finalChatId2);
+      }
       setMessages((m) => [
         ...m,
         { id: ts + 1, text: reply, sender: 'bot', viz, data, sql },
@@ -371,7 +554,7 @@ export default function ChatBox() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          chatId: localStorage.getItem('chatId'),
+          chatId: localStorage.getItem('currentChatId') || localStorage.getItem('chatId'),
           message: lastUserQueryRef.current,
           clarification: {
             original: clarifyReq.missing.name,
@@ -382,7 +565,10 @@ export default function ChatBox() {
       const headerChatId3 = r.headers.get('X-Chat-Id');
       const { reply, viz, data, sql, messageId, chatId: bodyChatId3 } = await r.json();
       const finalChatId3 = headerChatId3 || bodyChatId3;
-      if (finalChatId3) localStorage.setItem('chatId', finalChatId3);
+      if (finalChatId3) {
+        localStorage.setItem('chatId', finalChatId3);
+        localStorage.setItem('currentChatId', finalChatId3);
+      }
 
       if (messageId && wsRef.current?.readyState === WebSocket.OPEN) {
         try {
@@ -479,7 +665,7 @@ export default function ChatBox() {
               {m.sender === 'user' ? (
                 <Box
                   position="relative"
-                  bg="blue.600"
+                  bg={previewUserColor || userBgColor}
                   color="white"
                   px={4}
                   py={3}
@@ -527,8 +713,8 @@ export default function ChatBox() {
               ) : (
                 <Box
                   position="relative"
-                  bg={m.sender === 'error' ? 'red.400' : '#e3f3e6'}
-                  color="gray.900"
+                  bg={m.sender === 'error' ? 'red.400' : (previewBotColor || botBgColor)}
+                  color="gray.700"
                   px={4}
                   py={isCollapsed ? 1 : 3}
                   borderRadius="0 20px 20px 20px"
@@ -660,7 +846,7 @@ export default function ChatBox() {
         })}
       </AnimatePresence>
     ),
-    [messages, openPanels, collapsed, overrideViz, handleSelect, fontSize, fontFamily]
+    [messages, openPanels, collapsed, overrideViz, handleSelect, fontSize, fontFamily, userBgColor, botBgColor, previewUserColor, previewBotColor]
   );
 
   return (
@@ -731,18 +917,95 @@ export default function ChatBox() {
                   </Select>
                 </FormControl>
                 
-                <Text fontSize="xs" color="gray.600">
-                  תצוגה מקדימה: 
-                  <Text 
-                    as="span" 
-                    fontSize={`${fontSize}px`} 
-                    fontFamily={fontFamily}
-                    display="block"
-                    mt={1}
-                  >
-                    זהו טקסט לדוגמה
-                  </Text>
+                <Divider />
+                
+                <FormControl>
+                  <FormLabel fontSize="sm">צבע הודעות משתמש</FormLabel>
+                  <SimpleGrid columns={4} spacing={2}>
+                    {userColorOptions.map((option) => (
+                      <Tooltip key={option.value} label={option.label}>
+                        <Box
+                          w="32px"
+                          h="32px"
+                          bg={option.color}
+                          borderRadius="md"
+                          cursor="pointer"
+                          border={userBgColor === option.value ? "3px solid" : "1px solid"}
+                          borderColor={userBgColor === option.value ? "gray.800" : "gray.200"}
+                          _hover={{ 
+                            transform: "scale(1.1)", 
+                            borderColor: "gray.500",
+                            boxShadow: "md" 
+                          }}
+                          transition="all 0.2s"
+                          onClick={() => handleUserBgColorChange(option.value)}
+                          onMouseEnter={() => setPreviewUserColor(option.value)}
+                          onMouseLeave={() => setPreviewUserColor(null)}
+                        />
+                      </Tooltip>
+                    ))}
+                  </SimpleGrid>
+                </FormControl>
+                
+                <FormControl>
+                  <FormLabel fontSize="sm">צבע הודעות בוט</FormLabel>
+                  <SimpleGrid columns={4} spacing={2}>
+                    {botColorOptions.map((option) => (
+                      <Tooltip key={option.value} label={option.label}>
+                        <Box
+                          w="32px"
+                          h="32px"
+                          bg={option.color}
+                          borderRadius="md"
+                          cursor="pointer"
+                          border={botBgColor === option.value ? "3px solid" : "1px solid"}
+                          borderColor={botBgColor === option.value ? "gray.800" : "gray.200"}
+                          _hover={{ 
+                            transform: "scale(1.1)", 
+                            borderColor: "gray.500",
+                            boxShadow: "md" 
+                          }}
+                          transition="all 0.2s"
+                          onClick={() => handleBotBgColorChange(option.value)}
+                          onMouseEnter={() => setPreviewBotColor(option.value)}
+                          onMouseLeave={() => setPreviewBotColor(null)}
+                        />
+                      </Tooltip>
+                    ))}
+                  </SimpleGrid>
+                </FormControl>
+                
+                <Text fontSize="xs" color="gray.600" mb={2}>
+                  תצוגה מקדימה:
                 </Text>
+                <VStack spacing={2} align="stretch">
+                  <Box
+                    bg={previewUserColor || userBgColor}
+                    color="white"
+                    p={2}
+                    borderRadius="20px 0 20px 20px"
+                    fontSize={`${fontSize}px`}
+                    fontFamily={fontFamily}
+                    dir="rtl"
+                    textAlign="right"
+                    boxShadow="sm"
+                  >
+                    זהו טקסט לדוגמה מהמשתמש
+                  </Box>
+                  <Box
+                    bg={previewBotColor || botBgColor}
+                    color="gray.700"
+                    p={2}
+                    borderRadius="0 20px 20px 20px"
+                    fontSize={`${fontSize}px`}
+                    fontFamily={fontFamily}
+                    dir="rtl"
+                    textAlign="right"
+                    boxShadow="sm"
+                  >
+                    זהו טקסט לדוגמה מהבוט
+                  </Box>
+                </VStack>
               </VStack>
             </PopoverBody>
           </PopoverContent>
@@ -750,9 +1013,11 @@ export default function ChatBox() {
       </Box>
 
       <MotionStack
+        ref={messagesContainerRef}
         flex="1"
         spacing={3}
         overflowY="auto"
+        position="relative"
         sx={{
           scrollbarGutter: 'stable',
           '&::-webkit-scrollbar': { width: '8px' },
@@ -774,13 +1039,30 @@ export default function ChatBox() {
           options={clarifyReq?.options || []}
           onSubmit={handleClarifySubmit}
         />
-        <div ref={endRef} />
+        <div ref={messagesEndRef} />
+        
+        {/* Scroll to bottom button */}
+        {showScrollToBottom && (
+          <IconButton
+            aria-label="חזור לתחתית"
+            icon={<ChevronDownIcon />}
+            position="absolute"
+            bottom="20px"
+            right="20px"
+            colorScheme="blue"
+            size="lg"
+            borderRadius="full"
+            boxShadow="lg"
+            onClick={scrollToBottom}
+            zIndex={10}
+          />
+        )}
       </MotionStack>
 
       <Box
         position="fixed"
         bottom="0"
-        right={{ base: '70px', md: '240px' }}  // מותאם לרוחב התפריט
+        right="280px"  // מותאם לרוחב התפריט ב-AppShell
         left="0"
         bg="gray.50"
         borderTop="1px solid"
@@ -807,31 +1089,6 @@ export default function ChatBox() {
           </Button>
         </HStack>
       </Box>
-      {/* Floating draggable history button */}
-      <MotionIconButton
-        icon={<FaListUl />}
-        aria-label="הצג היסטוריה"
-        colorScheme="teal"
-        size="lg"
-        position="fixed"
-        bottom="110px"
-        right="20px"
-        zIndex={40}
-        borderRadius="full"
-        drag
-        dragMomentum={false}
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.9 }}
-        onClick={handleHistoryClick}
-      />
-
-      {/* Chat history modal */}
-      <ChatHistoryModal
-        isOpen={isHistOpen}
-        onClose={closeHist}
-        historyData={histData}
-        loading={histLoading}
-      />
     </Box>
   );
 }

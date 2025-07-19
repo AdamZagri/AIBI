@@ -120,7 +120,7 @@ export default function ChartRenderer({ viz, data, sql, onSelect }: VizProps) {
 
   // Log dataset to console whenever it changes
   useEffect(() => {
-    // eslint-disable-next-line no-console
+     
     console.log('ChartRenderer data', localData);
   }, [localData]);
 
@@ -359,7 +359,7 @@ export default function ChartRenderer({ viz, data, sql, onSelect }: VizProps) {
   const onRefreshData = async () => {
     if (!sql) return;
     try {
-      const res = await fetch('https://aibi.cloudline.co.il/refresh-data', { // ← עדכון הכתובת
+              const res = await fetch('https://aibi.cloudline.co.il/refresh-data', { // ← עדכון הכתובת
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sql_query: sql }),

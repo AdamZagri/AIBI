@@ -1,6 +1,23 @@
-import { Box, Button, Badge, HStack, VStack, Text, useColorModeValue } from '@chakra-ui/react';
+import { 
+  Box, 
+  Button, 
+  Badge, 
+  HStack, 
+  VStack, 
+  Text, 
+  useColorModeValue, 
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+  PopoverBody,
+  PopoverArrow,
+  PopoverCloseButton,
+  CheckboxGroup,
+  Checkbox,
+  Stack
+} from '@chakra-ui/react';
 import { useState } from 'react';
-import Select from 'react-select';
+import { FiChevronDown } from 'react-icons/fi';
 
 export interface FilterState {
   domains: string[];
@@ -40,11 +57,13 @@ const INSIGHT_TYPES = [
   { label: 'דפוס', value: 'דפוס' },
   { label: 'השוואה', value: 'השוואה' },
 ];
+
 const URGENCY_LEVELS = [
   { label: 'גבוהה', value: 'גבוהה' },
   { label: 'בינונית', value: 'בינונית' },
   { label: 'נמוכה', value: 'נמוכה' },
 ];
+
 const STATUSES = [
   { label: 'חדש', value: 'new' },
   { label: 'נבדק', value: 'reviewed' },
@@ -79,9 +98,8 @@ export function InsightDomainFilter({ insights, onFilterChange }: DomainFilterPr
     onFilterChange(newFilters);
   };
 
-  const handleMultiSelect = (filterType: keyof FilterState, values: any) => {
-    const arr = Array.isArray(values) ? values.map((v) => v.value) : [];
-    const newFilters = { ...filters, [filterType]: arr };
+  const handleMultiSelectChange = (filterType: keyof FilterState, values: string[]) => {
+    const newFilters = { ...filters, [filterType]: values };
     setFilters(newFilters);
     onFilterChange(newFilters);
   };
@@ -97,23 +115,71 @@ export function InsightDomainFilter({ insights, onFilterChange }: DomainFilterPr
     onFilterChange(emptyFilters);
   };
 
-  // react-select style override for Chakra look
-  const selectStyles = {
-    control: (base: any) => ({ ...base, minHeight: '32px', borderRadius: '8px', fontSize: '0.95em' }),
-    multiValue: (base: any) => ({ ...base, background: '#e2e8f0', color: '#1a202c' }),
-    multiValueLabel: (base: any) => ({ ...base, color: '#1a202c' }),
-    option: (base: any, state: any) => ({ ...base, direction: 'rtl', textAlign: 'right', background: state.isSelected ? '#bee3f8' : base.background }),
-    menu: (base: any) => ({ ...base, zIndex: 9999 }),
-    input: (base: any) => ({ ...base, direction: 'rtl', textAlign: 'right' }),
-    placeholder: (base: any) => ({ ...base, direction: 'rtl', textAlign: 'right' }),
+  const getFilterButtonText = (filterType: keyof FilterState, defaultText: string) => {
+    const selectedCount = filters[filterType].length;
+    if (selectedCount === 0) return defaultText;
+    if (selectedCount === 1) return filters[filterType][0];
+    return `${selectedCount} נבחרו`;
   };
+
+  const FilterPopover = ({ 
+    label, 
+    filterType, 
+    options, 
+    defaultText 
+  }: { 
+    label: string; 
+    filterType: keyof FilterState; 
+    options: Array<{label: string, value: string}>; 
+    defaultText: string;
+  }) => (
+    <Popover placement="bottom-start">
+      <PopoverTrigger>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          rightIcon={<FiChevronDown />}
+          minW="140px"
+          justifyContent="space-between"
+        >
+          {getFilterButtonText(filterType, defaultText)}
+          {filters[filterType].length > 0 && (
+            <Badge ml={2} colorScheme="blue" variant="solid">
+              {filters[filterType].length}
+            </Badge>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent w="200px">
+        <PopoverArrow />
+        <PopoverCloseButton />
+        <PopoverBody>
+          <VStack align="start" spacing={2}>
+            <Text fontWeight="bold" fontSize="sm">{label}</Text>
+            <CheckboxGroup
+              value={filters[filterType]}
+              onChange={(values) => handleMultiSelectChange(filterType, values as string[])}
+            >
+              <Stack spacing={1}>
+                {options.map((option) => (
+                  <Checkbox key={option.value} value={option.value} size="sm">
+                    {option.label}
+                  </Checkbox>
+                ))}
+              </Stack>
+            </CheckboxGroup>
+          </VStack>
+        </PopoverBody>
+      </PopoverContent>
+    </Popover>
+  );
 
   return (
     <Box bg={bg} p={3} borderRadius="md" boxShadow="sm" border="1px solid" borderColor={borderColor} mb={4}>
-      <VStack align="stretch" spacing={2}>
+      <VStack align="stretch" spacing={3}>
         {/* Domain filter as colored buttons */}
         <Box>
-          <Text fontSize="sm" fontWeight="bold" mb={1}>תחום</Text>
+          <Text fontSize="sm" fontWeight="bold" mb={2}>תחום</Text>
           <HStack spacing={1} wrap="wrap">
             {DOMAINS.map(({ key, label, color }) => {
               const count = domainCounts[key] || 0;
@@ -126,7 +192,9 @@ export function InsightDomainFilter({ insights, onFilterChange }: DomainFilterPr
                   colorScheme={color}
                   onClick={() => handleDomainToggle(key)}
                   rightIcon={
-                    <Badge colorScheme={isSelected ? 'white' : color} variant={isSelected ? 'solid' : 'subtle'} ml={1}>{count}</Badge>
+                    <Badge colorScheme={isSelected ? 'white' : color} variant={isSelected ? 'solid' : 'subtle'} ml={1}>
+                      {count}
+                    </Badge>
                   }
                 >
                   {label}
@@ -135,57 +203,38 @@ export function InsightDomainFilter({ insights, onFilterChange }: DomainFilterPr
             })}
           </HStack>
         </Box>
-        {/* ComboBoxes row */}
-        <HStack spacing={4} align="center" justify="flex-start" wrap="wrap">
-          {/* Type filter as react-select MultiSelect ComboBox */}
-          <Box minW="170px">
-            <Text fontSize="sm" fontWeight="bold" mb={1}>סוג</Text>
-            <Select
+        
+        {/* Advanced filters row */}
+        <Box>
+          <Text fontSize="sm" fontWeight="bold" mb={2}>סינונים מתקדמים</Text>
+          <HStack spacing={3} align="center" justify="flex-start" wrap="wrap">
+            <FilterPopover 
+              label="סוג התובנה"
+              filterType="types"
               options={INSIGHT_TYPES}
-              value={INSIGHT_TYPES.filter((o) => filters.types.includes(o.value))}
-              onChange={(vals) => handleMultiSelect('types', vals)}
-              isMulti
-              placeholder="בחר סוג"
-              closeMenuOnSelect={false}
-              styles={selectStyles}
-              isRtl
+              defaultText="בחר סוג"
             />
-          </Box>
-          {/* Urgency filter as react-select MultiSelect ComboBox */}
-          <Box minW="140px">
-            <Text fontSize="sm" fontWeight="bold" mb={1}>דחיפות</Text>
-            <Select
+            
+            <FilterPopover 
+              label="רמת דחיפות"
+              filterType="urgencyLevels"
               options={URGENCY_LEVELS}
-              value={URGENCY_LEVELS.filter((o) => filters.urgencyLevels.includes(o.value))}
-              onChange={(vals) => handleMultiSelect('urgencyLevels', vals)}
-              isMulti
-              placeholder="בחר דחיפות"
-              closeMenuOnSelect={false}
-              styles={selectStyles}
-              isRtl
+              defaultText="בחר דחיפות"
             />
-          </Box>
-          {/* Status filter as react-select MultiSelect ComboBox */}
-          <Box minW="140px">
-            <Text fontSize="sm" fontWeight="bold" mb={1}>סטטוס</Text>
-            <Select
+            
+            <FilterPopover 
+              label="סטטוס"
+              filterType="statuses"
               options={STATUSES}
-              value={STATUSES.filter((o) => filters.statuses.includes(o.value))}
-              onChange={(vals) => handleMultiSelect('statuses', vals)}
-              isMulti
-              placeholder="בחר סטטוס"
-              closeMenuOnSelect={false}
-              styles={selectStyles}
-              isRtl
+              defaultText="בחר סטטוס"
             />
-          </Box>
-          {/* Clear all button */}
-          <Box alignSelf="flex-end">
-            <Button size="xs" variant="ghost" onClick={clearAll}>
+            
+            {/* Clear all button */}
+            <Button size="sm" variant="ghost" onClick={clearAll} colorScheme="red">
               נקה הכל
             </Button>
-          </Box>
-        </HStack>
+          </HStack>
+        </Box>
       </VStack>
     </Box>
   );

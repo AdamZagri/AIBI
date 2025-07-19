@@ -17,78 +17,134 @@ import {
   Spinner,
   IconButton,
   useToast,
+  VStack,
+  HStack,
+  Button,
+  Divider,
+  Badge,
 } from '@chakra-ui/react';
-import { CopyIcon } from '@chakra-ui/icons';
-import { FaRobot } from 'react-icons/fa';
+import { CopyIcon, ExternalLinkIcon } from '@chakra-ui/icons';
+import { FaRobot, FaUser, FaClock, FaComments } from 'react-icons/fa';
 import { motion } from 'framer-motion';
 import { useCallback } from 'react';
-import dynamic from 'next/dynamic';
-
-// Lazy-load interactive JSON viewer (client-side only)
-const ReactJson = dynamic(() => import('react-json-view'), { ssr: false });
 
 const MotionBox = motion(Box);
 
 export interface HistoryModalProps {
   isOpen: boolean;
   onClose: () => void;
-  historyData: any | null;
+  historyData: any[] | null;
   loading: boolean;
 }
 
 export default function ChatHistoryModal({ isOpen, onClose, historyData, loading }: HistoryModalProps) {
   const toast = useToast();
 
-  const copySql = useCallback(() => {
-    if (!historyData?.lastSqlSuccess) return;
-    navigator.clipboard.writeText(historyData.lastSqlSuccess).then(() => {
-      toast({ title: 'SQL הועתק', status: 'success', duration: 1000 });
-    });
-  }, [historyData, toast]);
+  const formatDate = (dateString: string) => {
+    try {
+      return new Date(dateString).toLocaleString('he-IL');
+    } catch {
+      return dateString;
+    }
+  };
 
-  const complexity = historyData?.context?.complexityLevel ?? null;
+  const loadChatSession = useCallback((chatId: string) => {
+    localStorage.setItem('currentChatId', chatId);
+    window.location.reload();
+  }, []);
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="4xl" scrollBehavior="inside">
       <ModalOverlay />
       <ModalContent>
-        <ModalHeader>היסטוריית שיחה (JSON)</ModalHeader>
+        <ModalHeader>
+          <HStack>
+            <FaComments />
+            <Text>שיחות קודמות</Text>
+          </HStack>
+        </ModalHeader>
         <ModalCloseButton />
         <ModalBody>
-          {loading && <Spinner alignSelf="center" />}
-
-          {!loading && historyData && (
-            <Box mb={4}>
-              <ReactJson
-                src={historyData}
-                name={false}
-                collapsed={2}
-                enableClipboard
-                displayDataTypes={false}
-                indentWidth={2}
-                style={{ fontSize: '12px', direction: 'ltr' }}
-              />
+          {loading && (
+            <Box display="flex" justifyContent="center" py={8}>
+              <Spinner size="lg" />
             </Box>
           )}
 
-          {!loading && historyData?.lastSqlSuccess && (
-            <Box bg="gray.100" p={3} borderRadius="md" mb={2} position="relative">
-              <Text fontWeight="bold" mb={1} fontSize="sm">
-                שאילתה אחרונה מוצלחת:
+          {!loading && historyData && historyData.length > 0 && (
+            <VStack spacing={4} align="stretch">
+              {historyData.map((session: any, index: number) => (
+                <MotionBox
+                  key={session.chat_id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.1 }}
+                  p={4}
+                  borderRadius="md"
+                  border="1px"
+                  borderColor="gray.200"
+                  bg="white"
+                  _hover={{ bg: 'gray.50', transform: 'translateY(-2px)' }}
+                  cursor="pointer"
+                  onClick={() => loadChatSession(session.chat_id)}
+                >
+                  <HStack justify="space-between" align="start">
+                    <VStack align="start" spacing={2} flex={1}>
+                      <HStack>
+                        <FaRobot color="blue" />
+                        <Text fontWeight="bold" fontSize="md">
+                          {session.title || 'שיחה ללא כותרת'}
+                        </Text>
+                        <Badge colorScheme={session.status === 'active' ? 'green' : 'gray'}>
+                          {session.status === 'active' ? 'פעיל' : 'בארכיון'}
+                        </Badge>
+                      </HStack>
+                      
+                      {session.first_message_preview && (
+                        <Text fontSize="sm" color="gray.600" noOfLines={2}>
+                          {session.first_message_preview}
+                        </Text>
+                      )}
+                      
+                      <HStack spacing={4} fontSize="xs" color="gray.500">
+                        <HStack>
+                          <FaComments />
+                          <Text>{session.total_messages || 0} הודעות</Text>
+                        </HStack>
+                        <HStack>
+                          <FaClock />
+                          <Text>{formatDate(session.last_accessed_at)}</Text>
+                        </HStack>
+                        {session.total_cost > 0 && (
+                          <HStack>
+                            <Text>₪{session.total_cost.toFixed(3)}</Text>
+                          </HStack>
+                        )}
+                      </HStack>
+                    </VStack>
+                    
+                    <IconButton
+                      aria-label="פתח שיחה"
+                      icon={<ExternalLinkIcon />}
+                      size="sm"
+                      variant="ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        loadChatSession(session.chat_id);
+                      }}
+                    />
+                  </HStack>
+                </MotionBox>
+              ))}
+            </VStack>
+          )}
+
+          {!loading && (!historyData || historyData.length === 0) && (
+            <Box textAlign="center" py={8}>
+              <FaComments size={48} color="gray.300" />
+              <Text mt={4} color="gray.500">
+                אין שיחות קודמות
               </Text>
-              <Code display="block" whiteSpace="pre-wrap" fontSize="xs">
-                {historyData.lastSqlSuccess}
-              </Code>
-              <IconButton
-                aria-label="העתק SQL"
-                icon={<CopyIcon />}
-                size="sm"
-                variant="ghost"
-                position="absolute"
-                top="4px"
-                right="4px"
-                onClick={copySql}
-              />
             </Box>
           )}
         </ModalBody>

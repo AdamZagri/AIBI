@@ -9,7 +9,7 @@ import ChakraTable from './ChakraTable';
 import MuiDataTable from './MuiDataTable';
 import { asObjects } from './chartHelpers';
 // import 'react-pivottable/pivottable.css';
-import '../styles/PivotTable.custom.css'
+// CSS import moved to _app.tsx
 import WdrPivot from './DataTable';
 
 // Polyfill ל־findDOMNode שאותו react-pivottable מנסה לקרוא

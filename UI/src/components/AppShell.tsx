@@ -1,369 +1,210 @@
-// src/components/AppShell.tsx
-'use client';
+'use client'
 
-import { ReactNode } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useSession, signOut } from 'next-auth/react';
-import {
-  Box,
-  Flex,
-  IconButton,
-  useDisclosure,
-  VStack,
+import { ReactNode, useState, useEffect } from 'react'
+import ErrorBoundary from './ErrorBoundary'
+import { 
+  Box, 
+  VStack, 
+  HStack,
   Text,
   Button,
-  Collapse,
+  useColorModeValue,
+  Container,
+  Heading,
+  Flex,
+  IconButton,
+  useColorMode,
+  Avatar,
+  Menu,
+  MenuButton,
+  MenuList,
+  MenuItem,
+  MenuDivider,
   Icon,
-  HStack,
-} from '@chakra-ui/react';
-import {
-  ChatIcon,
-  InfoIcon,
-  RepeatIcon,
-  SettingsIcon,
-  CalendarIcon,
-} from '@chakra-ui/icons';
-import {
-  FiMenu,
-  FiChevronLeft,
-  FiChevronDown,
-  FiChevronRight,
-  FiBarChart2,
-  FiDatabase,
-  FiDollarSign,
-  FiCreditCard,
-  FiLogOut,
-} from 'react-icons/fi';
-import { FaExclamation } from 'react-icons/fa';
+  Tooltip,
+  Badge
+} from '@chakra-ui/react'
+import { FiMessageSquare, FiTrendingUp, FiBarChart, FiSettings, FiMoon, FiSun, FiLogOut, FiCpu } from 'react-icons/fi'
+import { useSession, signOut } from 'next-auth/react'
+import { useRouter } from 'next/router'
+import Link from 'next/link'
+import { ReactElement, JSXElementConstructor } from 'react'
 
-function SidebarLink({
-  icon,
-  href,
-  children,
-}: {
-  icon: any;
-  href: string;
-  children: ReactNode;
-}) {
-  return (
-    <Link href={href}>
-      <Button
-        leftIcon={icon}
-        variant="ghost"
-        justifyContent="start"
-        w="100%"
-        px={4}
-        py={3}
-        fontWeight="normal"
-        color="white"
-        _hover={{ bg: 'gray.700', color: 'white' }}
-      >
-        {children}
-      </Button>
-    </Link>
-  );
+interface AppShellProps {
+  children: ReactNode
 }
 
-export default function AppShell({ children }: { children: ReactNode }) {
-  const { data: session } = useSession();
-  
-  // אובייקט זמני אם אין session - יעודכן מגוגל בעתיד
-  const mockSession = {
-    user: {
-      name: 'אדם זגרי',
-      email: 'adam@rotlein.co.il',
-    }
-  };
+interface NavItemProps {
+  href: string
+  icon: ReactElement<any, string | JSXElementConstructor<any>>
+  label: string
+  isActive?: boolean
+}
 
-  const { isOpen, onToggle } = useDisclosure({ defaultIsOpen: true });
-  const router = useRouter();
-  const chatDisclosure = useDisclosure();
-  const dashboardsDisclosure = useDisclosure();
-  const insightsDisclosure = useDisclosure();
-  const settingsDisclosure = useDisclosure();
-  const billingDisclosure = useDisclosure();
-
-  const newChat = () => {
-    localStorage.removeItem('chatId');
-    router.push('/');
-  };
-
-  const handleSignOut = () => {
-    if (session) {
-      signOut({ callbackUrl: '/' });
-    } else {
-      // אם אין session אמיתי, פשוט נקה הכל
-      localStorage.removeItem('chatId');
-      window.location.reload();
-    }
-  };
+const NavItem = ({ href, icon, label, isActive }: NavItemProps) => {
+  const bgColor = useColorModeValue(
+    isActive ? 'blue.50' : 'transparent',
+    isActive ? 'blue.900' : 'transparent'
+  )
+  const textColor = useColorModeValue(
+    isActive ? 'blue.600' : 'gray.700',
+    isActive ? 'blue.300' : 'gray.300'
+  )
+  const hoverBg = useColorModeValue('gray.100', 'gray.700')
 
   return (
-    <Flex direction="row-reverse">
-      {/* Sidebar */}
-      <Box
-        w={isOpen ? '240px' : '70px'}
-        h="100vh"
-        position="fixed"
-        top={0}
-        right={0}
-        bg="gray.900"
-        color="white"
-        transition="width 0.3s"
-        zIndex={10}
-      >
-        <Flex
-          align="center"
-          justify="center"
-          h="80px"
-          borderBottom="1px solid"
-          borderColor="gray.700"
-        >
-          <Text fontSize={isOpen ? 'xl' : 'lg'} fontWeight="bold">
-            {isOpen ? 'תפריט' : 'ERP'}
-          </Text>
-        </Flex>
+    <Button
+      as={Link}
+      href={href}
+      variant="ghost"
+      leftIcon={icon}
+      bg={bgColor}
+      color={textColor}
+      _hover={{ bg: hoverBg }}
+      justifyContent="start"
+      fontWeight={isActive ? 'semibold' : 'normal'}
+      borderRadius="lg"
+      h="12"
+      px={4}
+      w="full"
+    >
+      {label}
+    </Button>
+  )
+}
 
-        <VStack align="stretch" spacing={1} mt={4}>
-          {/* Chat ERP */}
-          <Button
-            leftIcon={<ChatIcon />}
-            rightIcon={
-              <Icon
-                as={chatDisclosure.isOpen ? FiChevronDown : FiChevronRight}
-              />
-            }
-            variant="ghost"
-            justifyContent="start"
-            w="100%"
-            px={4}
-            py={3}
-            fontWeight="normal"
-            color="white"
-            _hover={{ bg: 'gray.700', color: 'white' }}
-            onClick={() => {
-              newChat(); // ינקה ה-session
-              chatDisclosure.onToggle(); // אבל נשאיר גם את הפתיחה של התפריט
-            }}
+export default function AppShell({ children }: AppShellProps) {
+  const { data: session } = useSession()
+  const { colorMode, toggleColorMode } = useColorMode()
+  const router = useRouter()
+  const [isClient, setIsClient] = useState(false)
+
+  console.log('🏢 AppShell rendering:', {
+    currentPath: router.pathname,
+    asPath: router.asPath,
+    query: router.query,
+    sessionUser: session?.user?.email || 'not authenticated',
+    isReady: router.isReady
+  })
+
+  // Client-side only hydration fix
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
+
+  // Theme colors
+  const bgColor = useColorModeValue('gray.50', 'gray.900')
+  const sidebarBg = useColorModeValue('white', 'gray.800')
+  const borderColor = useColorModeValue('gray.200', 'gray.600')
+  const textColor = useColorModeValue('gray.800', 'white')
+  const mutedColor = useColorModeValue('gray.600', 'gray.400')
+
+  // Navigation items
+  const navItems = [
+    { href: '/chat', icon: <FiMessageSquare />, label: 'צ\'אט ERP' },
+    { href: '/insights', icon: <FiTrendingUp />, label: 'תובנות' },
+    { href: '/dashboards', icon: <FiBarChart />, label: 'דשבורד' },
+    { href: '/important', icon: <FiSettings />, label: 'הנחיות' }
+  ]
+
+  return (
+    <ErrorBoundary>
+      <Box minH="100vh" bg={bgColor}>
+        <Flex h="100vh">
+          {/* Sidebar */}
+          <Box
+            w="280px"
+            bg={sidebarBg}
+            borderRight="1px"
+            borderColor={borderColor}
+            display="flex"
+            flexDirection="column"
           >
-            {isOpen && 'Chat ERP'}
-          </Button>
-          <Collapse in={chatDisclosure.isOpen} animateOpacity>
-            <VStack align="stretch" pl={6}>
-              <Button
+          {/* Header */}
+          <Box p={4} borderBottom="1px" borderColor={borderColor}>
+            <HStack spacing={2} align="center" justify="center">
+              <Icon as={FiCpu} boxSize={6} color="blue.500" />
+              <VStack spacing={1} align="center">
+                <Heading size="md" color={textColor} fontWeight="bold">
+                  AI-BI
+                </Heading>
+                <Text fontSize="sm" color={mutedColor} textAlign="center">
+                  מערכת בינה מלאכותית
+                </Text>
+              </VStack>
+            </HStack>
+          </Box>
+
+          {/* Navigation */}
+          <VStack spacing={2} p={4} flex={1}>
+            {navItems.map((item) => (
+              <NavItem
+                key={item.href}
+                href={item.href}
+                icon={item.icon}
+                label={item.label}
+                isActive={router.pathname === item.href}
+              />
+            ))}
+          </VStack>
+
+          {/* User Section */}
+          <Box p={4} borderTop="1px" borderColor={borderColor}>
+            <HStack justify="space-between" align="center">
+              <Menu>
+                <MenuButton>
+                  <HStack spacing={3}>
+                    <Avatar 
+                      size="sm" 
+                      name={session?.user?.name || 'משתמש'} 
+                      src={session?.user?.image || undefined}
+                    />
+                    <VStack align="start" spacing={0}>
+                      <Text fontSize="sm" fontWeight="medium" color={textColor}>
+                        {session?.user?.name || 'משתמש'}
+                      </Text>
+                      <Text fontSize="xs" color={mutedColor}>
+                        {session?.user?.email || 'guest@example.com'}
+                      </Text>
+                    </VStack>
+                  </HStack>
+                </MenuButton>
+                <MenuList>
+                  <MenuItem onClick={() => signOut()}>
+                    <FiLogOut style={{ marginRight: '8px' }} />
+                    התנתק
+                  </MenuItem>
+                </MenuList>
+              </Menu>
+              
+              <IconButton
+                icon={colorMode === 'light' ? <FiMoon /> : <FiSun />}
                 variant="ghost"
                 size="sm"
-                leftIcon={<RepeatIcon />}
-                justifyContent="start"
-                w="100%"
-                color="white"
-                _hover={{ bg: 'gray.700' }}
-                onClick={newChat}
-              >
-                {isOpen && 'New Chat'}
-              </Button>
-
-              <SidebarLink icon={<FiMenu />} href="/chat-history">
-                {isOpen && 'Chat History'}
-              </SidebarLink>
-            </VStack>
-          </Collapse>
-
-          {/* Dashboards */}
-          <Button
-            leftIcon={<FiBarChart2 />}
-            rightIcon={
-              <Icon
-                as={
-                  dashboardsDisclosure.isOpen ? FiChevronDown : FiChevronRight
-                }
+                onClick={toggleColorMode}
+                aria-label="Toggle theme"
               />
-            }
-            variant="ghost"
-            justifyContent="start"
-            w="100%"
-            px={4}
-            py={3}
-            fontWeight="normal"
-            color="white"
-            _hover={{ bg: 'gray.700', color: 'white' }}
-            onClick={dashboardsDisclosure.onToggle}
-          >
-            {isOpen && 'Dashboards'}
-          </Button>
-          <Collapse in={dashboardsDisclosure.isOpen} animateOpacity>
-            <VStack align="stretch" pl={6}>
-              <SidebarLink icon={<FiMenu />} href="/dashboards/auto">
-                {isOpen && 'Auto Dashboards'}
-              </SidebarLink>
-              <SidebarLink icon={<FiMenu />} href="/dashboards/personal">
-                {isOpen && 'Personal Dashboards'}
-              </SidebarLink>
-            </VStack>
-          </Collapse>
+            </HStack>
+          </Box>
+        </Box>
 
-          {/* Insights */}
-          <Button
-            leftIcon={<FiBarChart2 />}
-            rightIcon={
-              <Icon
-                as={insightsDisclosure.isOpen ? FiChevronDown : FiChevronRight}
-              />
-            }
-            variant="ghost"
-            justifyContent="start"
-            w="100%"
-            px={4}
-            py={3}
-            fontWeight="normal"
-            color="white"
-            _hover={{ bg: 'gray.700', color: 'white' }}
-            onClick={insightsDisclosure.onToggle}
-          >
-            {isOpen && 'AI Insights'}
-          </Button>
-          <Collapse in={insightsDisclosure.isOpen} animateOpacity>
-            <VStack align="stretch" pl={6}>
-              <SidebarLink icon={<FiMenu />} href="/insights">
-                {isOpen && 'All Insights'}
-              </SidebarLink>
-            </VStack>
-          </Collapse>
-
-          {/* Settings */}
-          <Button
-            leftIcon={<SettingsIcon />}
-            rightIcon={
-              <Icon
-                as={settingsDisclosure.isOpen ? FiChevronDown : FiChevronRight}
-              />
-            }
-            variant="ghost"
-            justifyContent="start"
-            w="100%"
-            px={4}
-            py={3}
-            fontWeight="normal"
-            color="white"
-            _hover={{ bg: 'gray.700', color: 'white' }}
-            onClick={settingsDisclosure.onToggle}
-          >
-            {isOpen && 'Settings'}
-          </Button>
-          <Collapse in={settingsDisclosure.isOpen} animateOpacity>
-            <VStack align="stretch" pl={6}>
-              <SidebarLink icon={<FiDatabase />} href="/settings/connection">
-                {isOpen && 'Manage Connection'}
-              </SidebarLink>
-              <SidebarLink icon={<FiDatabase />} href="/settings/priority">
-                {isOpen && 'Priority Data'}
-              </SidebarLink>
-              <SidebarLink icon={<FiDatabase />} href="/settings/external">
-                {isOpen && 'External Data'}
-              </SidebarLink>
-              <SidebarLink icon={<FaExclamation />} href="/settings/ai">
-                {isOpen && 'AI Important'}
-              </SidebarLink>
-            </VStack>
-          </Collapse>
-
-          {/* Billing */}
-          {/* <Button
-            leftIcon={<FiCreditCard />}
-            rightIcon={
-              <Icon
-                as={billingDisclosure.isOpen ? FiChevronDown : FiChevronRight}
-              />
-            }
-            variant="ghost"
-            justifyContent="start"
-            w="100%"
-            px={4}
-            py={3}
-            fontWeight="normal"
-            color="white"
-            _hover={{ bg: 'gray.700', color: 'white' }}
-            onClick={billingDisclosure.onToggle}
-          >
-            {isOpen && 'Billing'}
-          </Button>
-          <Collapse in={billingDisclosure.isOpen} animateOpacity>
-            <VStack align="stretch" pl={6}>
-              <SidebarLink icon={<FiMenu />} href="/billing/token">
-                {isOpen && 'Token Manage'}
-              </SidebarLink>
-              <SidebarLink icon={<FiMenu />} href="/billing/plan">
-                {isOpen && 'Change Plan'}
-              </SidebarLink>
-            </VStack>
-          </Collapse> */}
-
-          <SidebarLink icon={<InfoIcon />} href="/about">
-            {isOpen && 'About Us'}
-          </SidebarLink>
-        </VStack>
-
-        {/* Toggle Button */}
-        <IconButton
-          aria-label="Toggle menu"
-          icon={<FiChevronLeft />}
-          onClick={onToggle}
-          size="sm"
-          position="absolute"
-          top="10px"
-          right={isOpen ? '200px' : '20px'}
-          transition="right 0.3s"
-          bg="transparent"
-          color="white"
-          _hover={{ bg: 'gray.700' }}
-        />
-      </Box>
-
-      {/* Main Content */}
-      <Box
-        flex="1"
-        mr={isOpen ? '240px' : '70px'}
-        h="100vh"
-        overflow="auto"
-        bg="gray.50"
-      >
-        {/* Header */}
-        <Flex
-          as="header"
-          h="64px"
-          bg="teal.700"
-          color="white"
-          px={6}
-          align="center"
-          justify="space-between"
-          position="relative"
-        >
-          <Text
-            fontWeight="bold"
-            fontSize="lg"
-            position="absolute"
-            left="50%"
-            transform="translateX(-50%)"
-          >
-            מערכת AI לניתוח נתוני ERP
-          </Text>
-          <HStack spacing={3}>
-            <Text fontSize="sm">
-              שלום, {session?.user?.name || mockSession.user?.name || session?.user?.email || mockSession.user?.email}
-            </Text>
-            <IconButton
-              aria-label="התנתק"
-              icon={<FiLogOut />}
-              variant="ghost"
-              color="white"
-              onClick={handleSignOut}
-            />
-          </HStack>
-        </Flex>
-
-        <Box p={4}>{children}</Box>
-      </Box>
-    </Flex>
-  );
+        {/* Main Content */}
+        <Box flex={1} overflow="auto" display="flex" flexDirection="column">
+          {/* Page Content */}
+          <Box flex={1} overflow="auto">
+            {router.pathname === '/chat' || router.pathname === '/insights' || router.pathname === '/important' ? (
+              // These pages handle their own layout with fixed headers
+              children
+            ) : (
+              // Other pages use container
+              <Container maxW="container.xl" py={6}>
+                {children}
+              </Container>
+            )}
+          </Box>
+        </Box>
+      </Flex>
+    </Box>
+    </ErrorBoundary>
+  )
 }
