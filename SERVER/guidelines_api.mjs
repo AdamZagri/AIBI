@@ -576,7 +576,7 @@ export async function getActiveGuidelinesForChat(userEmail) {
         g.created_at DESC
     `;
     
-    const guidelines = db.prepare(queryText).all(userEmail);
+    const guidelines = await query(queryText, [userEmail]);
     
     // פורמט הנחיות לצ'אט AI
     const formatted = {
@@ -668,6 +668,93 @@ export async function importGuidelinesFromFile(filePath, moduleCode, category = 
     return result;
   } catch (error) {
     console.error('Error importing guidelines from file:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+} 
+
+// ═══════════ QUICK GUIDELINE CREATION ═══════════════════════════════════
+
+/**
+ * יצירת הנחיה מהירה מתוך UI הצ'אט
+ * @param {Object} data - נתוני ההנחיה
+ * @param {string} data.content - תוכן ההנחיה (חובה)
+ * @param {string} data.userEmail - משתמש יוצר (חובה)
+ * @param {string} data.category - קטגוריה (user/system/examples)
+ * @param {number} data.moduleId - מודול עסקי
+ * @param {string} data.relatedQuery - השאלה שהובילה ליצירת ההנחיה
+ * @param {string} data.relatedSql - ה-SQL הקשור
+ */
+export async function createQuickGuideline(data) {
+  try {
+    const {
+      content,
+      userEmail,
+      category = 'user', // ברירת מחדל: הנחיית משתמש
+      moduleId = null,
+      relatedQuery = null,
+      relatedSql = null
+    } = data;
+    
+    // בדיקת שדות חובה
+    if (!content || !userEmail) {
+      return {
+        success: false,
+        error: 'Required fields missing: content, userEmail'
+      };
+    }
+    
+    // יצירת כותרת אוטומטית
+    const autoTitle = `הנחיה מהירה - ${new Date().toLocaleDateString('he-IL')}`;
+    
+    // הוספת מידע נוסף לתוכן ההנחיה
+    let enhancedContent = content.trim();
+    
+    if (relatedQuery) {
+      enhancedContent += `\n\n--- קשור לשאלה ---\n${relatedQuery}`;
+    }
+    
+    if (relatedSql) {
+      enhancedContent += `\n\n--- SQL קשור ---\n${relatedSql}`;
+    }
+    
+    // יצירת ההנחיה באמצעות הפונקציה הקיימת
+    const result = await createGuideline({
+      category,
+      subcategory: 'quick_created',
+      module_id: moduleId,
+      title: autoTitle,
+      content: enhancedContent,
+      user_email: userEmail,
+      priority: 5, // עדיפות בינונית
+      created_by: userEmail
+    });
+    
+    if (result.success) {
+      // הפעלה אוטומטית של הנחיות מהירות
+      await updateGuideline(result.data.id, {
+        active: true,
+        validation_status: 'approved',
+        updated_by: userEmail
+      });
+      
+      return {
+        success: true,
+        data: { 
+          id: result.data.id,
+          title: autoTitle,
+          content: enhancedContent
+        },
+        message: 'הנחיה מהירה נוצרה ופועלת!'
+      };
+    }
+    
+    return result;
+    
+  } catch (error) {
+    console.error('Error creating quick guideline:', error);
     return {
       success: false,
       error: error.message

@@ -112,7 +112,7 @@ let schemaTxt = '', lastMtime = 0;
 async function refreshSchema() {
   const mtime = fs.statSync(DUCKDB_PATH).mtimeMs;
   if (mtime === lastMtime) {
-    log('[SCHEMA] refreshSchema skipped (no change in DB file)');
+    // log('[SCHEMA] refreshSchema skipped (no change in DB file)'); // Removed noisy log
     return;
   }
   lastMtime = mtime;
@@ -221,7 +221,7 @@ app.use(
       return callback(new Error('Not allowed by CORS'));
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-email'],
     credentials: true,
   })
 );
@@ -292,7 +292,8 @@ import {
   createQueryExample,
   getQueryExamples,
   getActiveGuidelinesForChat,
-  importGuidelinesFromFile
+  importGuidelinesFromFile,
+  createQuickGuideline
 } from './guidelines_api.mjs';
 
 /*━━━━━━━━ CHAT HISTORY API SETUP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
@@ -331,6 +332,7 @@ console.log('   GET /api/guidelines/examples - קבלת דוגמאות שאיל�
 console.log('   POST /api/guidelines/examples - יצירת דוגמה');
 console.log('   GET /api/guidelines/active?userEmail=email - הנחיות פעילות לצ\'אט');
 console.log('   POST /api/guidelines/import - יבוא הנחיות מקבצים');
+console.log('   POST /api/guidelines/quick - יצירת הנחיה מהירה מהצ\'אט');
 
 console.log('💬 Chat History API endpoints loaded:');
 console.log('   GET /api/chat/sessions?userEmail=email - קבלת שיחות משתמש');
@@ -594,15 +596,22 @@ app.post('/chat', async (req, res) => {
   
   // 1️⃣ טעינת הנחיות דינמיות מבסיס הנתונים
   sendStatus(messageId, 'טעינת הנחיות', performance.now() - startTime, 'NoInfo');
-  const guidelinesResult = await getActiveGuidelinesForChat(session.userEmail);
+  
+  // Fallback for userEmail if not provided
+  const effectiveUserEmail = session.userEmail || 'adam@rotlein.co.il';
+  console.log(`🔧 Loading guidelines for effective user: ${effectiveUserEmail} (original: ${session.userEmail})`);
+  
+  const guidelinesResult = await getActiveGuidelinesForChat(effectiveUserEmail);
   
   if (!guidelinesResult.success) {
     console.error('❌ Failed to load guidelines:', guidelinesResult.error);
-    return res.status(500).json({ error: 'Failed to load guidelines' });
+    // Continue without guidelines rather than failing completely
+    console.log('⚠️ Continuing without dynamic guidelines');
+    var dynamicGuidelines = '\n--- System operating without dynamic guidelines ---\n';
+  } else {
+    var dynamicGuidelines = formatGuidelinesForAI(guidelinesResult.data);
+    console.log(`📋 Loaded guidelines: ${guidelinesResult.stats.total} total`);
   }
-  
-  const dynamicGuidelines = formatGuidelinesForAI(guidelinesResult.data);
-  console.log(`📋 Loaded guidelines: ${guidelinesResult.stats.total} total`);
   
   // 2️⃣ סיווג מהיר - data vs free vs meta
   sendStatus(messageId, 'סיווג שאלה', performance.now() - startTime, 'NoInfo');
@@ -743,6 +752,12 @@ app.post('/chat', async (req, res) => {
   }
 
 /*━━━━━━━━ REFRESH DATA ENDPOINT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━*/
+  
+  // ===== OLD ENGINE DISABLED - JUMP TO NEW ENGINE =====
+  /*
+  // Initialize variables for old processing path
+  let fastSql = '', fastSqlError = null, fastData = null;
+  
   try {
     // תמיד שלח את קובץ IMPORTANT ו-IMPORTANT_CTI במסלול Fast – מונע החסרת עמודות
     const sysFast = IMPORTANT + (IMPORTANT_CTI ? `\n${IMPORTANT_CTI}` : '');
@@ -988,105 +1003,127 @@ ${plan}` },
   let autoSubApplied = false;
   for (let attempt = 0; attempt <= MAX_REFINE; attempt++) {
     try {
-      executionResult = await executeWithRetry(sql);
-      if (attempt > 0) {
-        logStructured('success', 'sql_refine_success', { attempts: attempt, finalSqlLength: sql.length });
-      }
-      break; // הצליח
+      const execStart = performance.now();
+      const rows = await query(sql);
+      const execTime = performance.now() - execStart;
+      
+      logStructured('info', 'sql_execution_attempt', { attempt: attempt + 1, sql_preview: sql.slice(0, 100) + '...' });
+
+      const cleanRows = rows.map(r => {
+        const o = {};
+        for (let k in r) o[k] = (typeof r[k] === 'bigint') ? Number(r[k]) : r[k];
+        return o;
+      });
+
+      const columns = Object.keys(cleanRows[0] || {});
+      const data = {
+        columns,
+        rows: cleanRows.map(r => columns.map(c => r[c]))
+      };
+
+      logStructured('success', 'sql_execution_success', { rows: data.rows.length, executionTime: Math.round(execTime), attempt: attempt + 1 });
+      executionResult = { data, cleanRows, executionTime: execTime };
+      break;
     } catch (err) {
       lastError = err;
-      logStructured('error', 'sql_execution_failed', { attempt, error: err.message });
-      const missing = extractMissingIdentifier(err.message || '');
-      if (!autoSubApplied && missing) {
-        const options = suggestIdentifiers(missing.name, missing.type);
-        if (options.length) {
-          sql = sql.replace(new RegExp(missing.name, 'g'), options[0]);
+      logStructured('error', 'sql_execution_failed', { 
+        attempt: attempt + 1, 
+        error: err.message,
+        sql_preview: sql.slice(0, 100) + '...'
+      });
+
+      if (attempt < MAX_REFINE) {
+        // Auto-correction attempt
+        const correctionResp = await openai.chat.completions.create({
+          model: MODELS.fixer,
+          messages: [
+            { role: 'system', content: `תקן SQL שנכשל. מטרתך לפתור את השגיאה ולהחזיר SQL חדש שיעבוד.
+
+Schema:
+${schemaTxt}
+
+${IMPORTANT}
+
+${IMPORTANT_CTI}` },
+            { role: 'user', content: `SQL שנכשל:
+${sql}
+
+שגיאה:
+${err.message}
+
+תקן בלבד את השגיאה והחזר SQL חדש:` }
+          ],
+          temperature: 0.3
+        });
+
+        const fixedSql = unwrapSQL(correctionResp.choices[0].message.content.trim());
+        
+        if (fixedSql && fixedSql !== sql) {
+          sql = fixedSql;
+          sendStatus(messageId, 'SQL מעודכן', performance.now() - startTime, sql);
           autoSubApplied = true;
-          logStructured('info', 'auto_substitution', { missing: missing.name, substitute: options[0] });
-          continue; // לרוץ שוב מבלי להגדיל attempt
+        } else {
+          logStructured('warn', 'sql_correction_failed', { attempt: attempt + 1 });
         }
       }
-
-      if (attempt === MAX_REFINE) {
-        // Last attempt failed – נסה לנתח אם מדובר בעמודה/טבלה חסרה ולהעלות שאלה למשתמש
-        if (missing) {
-          const options = suggestIdentifiers(missing.name, missing.type);
-          sendStatus(messageId, 'clarification_request', performance.now() - startTime, { missing, options });
-          const clarifyReply = `לא נמצאה ${missing.type === 'column' ? 'עמודה' : 'טבלה'} בשם "${missing.name}". \nהאם התכוונת לאחת מהאפשרויות: ${options.join(', ')}?`;
-          const totalTime = performance.now() - startTime;
-          return res.json({ messageId, clarification: true, missing, options, reply: clarifyReply, processingTime: Math.round(totalTime) });
-        }
-
-        sendStatus(messageId, 'הרצת SQL נכשלה', performance.now() - startTime, err.message);
-        const errorReply = `הייתה שגיאה בביצוע השאילתה לאחר ${MAX_REFINE + 1} ניסיונות: ${err.message}`;
-        session.history.push({ role: 'assistant', content: errorReply });
-        const totalTime = performance.now() - startTime;
-        return res.json({ messageId, reply: errorReply, error: true, processingTime: Math.round(totalTime) });
-      }
-
-      // ניסיון תיקון
-      sendStatus(messageId, `תיקון SQL – ניסיון ${attempt + 1}`, performance.now() - startTime, err.message);
-      sql = await refineSqlWithAI(sql, err.message, userQ);
-      sendStatus(messageId, 'SQL מעודכן', performance.now() - startTime, sql);
     }
   }
-  // אם עדיין אין תוצאה (לא אמור לקרות)
+
   if (!executionResult) {
-    const failMsg = 'לא הצלחנו להריץ את השאילתה גם אחרי תיקונים.';
-    logStructured('error', 'sql_execution_gave_up', {});
-    return res.json({ messageId, reply: failMsg, error: true });
+    logStructured('error', 'sql_refine_failed', { 
+      finalError: lastError?.message,
+      attempts: MAX_REFINE + 1 
+    });
+    return res.status(500).json({ 
+      error: `SQL execution failed after ${MAX_REFINE + 1} attempts: ${lastError?.message}` 
+    });
   }
 
-  const { rows, executionTime } = executionResult;
-
-  // ── 🔄 DATA PROCESSING ─────────────────────────────────
-  const MAX_ROWS_STORE = 10000;
-  const limitedRows = rows.length > MAX_ROWS_STORE ? rows.slice(0, MAX_ROWS_STORE) : rows;
-  const cleanRows = limitedRows.map(r => {
-    const o = {};
-    for (let k in r) o[k] = (typeof r[k] === 'bigint') ? Number(r[k]) : r[k];
-    return o;
+  logStructured('success', 'sql_refine_success', { 
+    attempts: autoSubApplied ? 'multiple' : 1,
+    finalSqlLength: sql.length
   });
 
-  const cols = Object.keys(cleanRows[0] || {});
-  const data = {
-    columns: cols,
-    rows: cleanRows.map(r => cols.map(c => r[c]))
-  };
-
-  // ── 🎨 VISUALIZATION SELECTION ─────────────────────────────────
+  const { data, cleanRows, executionTime } = executionResult;
+  
+  // ── 🎨 VISUALIZATION SELECTION ─────────────────────────────────────────
+  sendStatus(messageId, 'בחירת ויזואליזציה', performance.now() - startTime, 'NoInfo');
   const intent = getExplicitIntent(userQ);
   const profile = profileRows(cleanRows);
   const viz = chooseViz(intent, profile);
 
-  // ── 🧠 INSIGHTS GENERATION ─────────────────────────────────────
-  const dataInsights = await analyzeDataInsights(cleanRows, analysis.intent);
-  
+  // ── 🧠 BUSINESS SUMMARY GENERATION ─────────────────────────────────────────
+  sendStatus(messageId, 'יצירת סיכום', performance.now() - startTime, 'NoInfo');
+  session.history.push({ role: 'user', content: userQ });
+  session.addQuery(userQ, analysis.complexity, analysis.business_domain);
+
   const summaryResp = await openai.chat.completions.create({
     model: MODELS.summarizer,
     messages: [
-      { role: 'system', content: 'ספק תובנות עמוקות ומפורטות המבוססות אך ורק על המידע שחזר מהשאילתה. אל תספק תובנות כלליות או מידע שלא קיים בנתונים. התמקד בניתוח הנתונים הספציפיים שהוצגו וזיהוי דפוסים, חריגים, מגמות או תובנות עסקיות רלוונטיות למידע עצמו.' },
+      { role: 'system', content: `נתח את התוצאות ותן תובנות עסקיות מעשיות. התמקד בנתונים האמיתיים.
+
+${session.getRecentContext()}` },
       { role: 'user', content: `השאילתה: "${userQ}"
-תוצאות (${data.rows.length} שורות):
-${JSON.stringify(data.rows.slice(0, 2), null, 2)}
-${explanation ? `הסבר טכני: ${explanation}` : ''}` }
+SQL: ${sql}
+תוצאות (${cleanRows.length} שורות):
+${JSON.stringify(cleanRows.slice(0, 3), null, 2)}` }
     ],
     temperature: 0.3
   });
 
-  let reply = summaryResp.choices[0].message.content.trim();
+  const reply = summaryResp.choices[0].message.content.trim();
   
-  // Add data insights if available
-  if (dataInsights) {
-    reply += dataInsights;
-  }
-
+  // ── 🔍 INSIGHT ANALYSIS ─────────────────────────────────────────
+  const insights = await generateDataInsights(cleanRows, userQ);
+  const insightText = insights.length > 0 ? `\n\n🔍 תובנות נוספות: ${insights.join('; ')}` : '';
+  
   logStructured('success', 'insights_generated', { 
     replyLength: reply.length,
-    hasDataInsights: !!dataInsights
+    hasDataInsights: insights.length > 0
   });
 
-  // ── 💾 SESSION MANAGEMENT ─────────────────────────────────────────────
+  // ── 💾 SESSION & DB STORAGE ─────────────────────────────────────────
+  const cols = Object.keys(cleanRows[0] || {});
   const limitedRowsPipe = cleanRows.slice(0, 200);
   const costPipe = calcCost(MODELS.summarizer, summaryResp.usage);
   const ctxPipe = extractContext(cleanRows);
@@ -1165,10 +1202,8 @@ ${explanation ? `הסבר טכני: ${explanation}` : ''}` }
     sampleRows: cleanRows.slice(0, 2),
     reply
   });
-  res.json(response);
-
-  // Store last successful SQL for continuation context
-  session.lastSqlSuccess = sql || fastSql;
+  return res.json(response);
+  */
 
   // ── ⚡ NEW HYBRID DATA ENGINE ─────────────────────────────────────────
   if (decision === 'data') {
@@ -1287,7 +1322,10 @@ ${lastSqlContext}
       return o;
     });
 
-    const viz = chooseViz(cleanRows);
+    // Choose visualization type
+    const intent = getExplicitIntent(userQ);
+    const profile = profileRows(cleanRows);
+    const viz = chooseViz(intent, profile);
     
     // Generate business summary
     const summaryResp = await openai.chat.completions.create({
@@ -2917,7 +2955,7 @@ app.get('/api/guidelines/chat/:userEmail', async (req, res) => {
   console.log('💬 GET /api/guidelines/chat - טעינת הנחיות לצ\'אט');
   
   try {
-    const userEmail = req.params.userEmail;
+    const userEmail = req.params.userEmail || 'adam@rotlein.co.il';
     console.log('🔧 Loading chat guidelines for user:', userEmail);
     
     const result = await getActiveGuidelinesForChat(userEmail);
@@ -2927,13 +2965,21 @@ app.get('/api/guidelines/chat/:userEmail', async (req, res) => {
       res.json(result);
     } else {
       console.log('❌ שגיאה בטעינת הנחיות צ\'אט:', result.error);
-      res.status(500).json(result);
+      // Return empty guidelines instead of error to allow graceful degradation
+      res.json({
+        success: true,
+        data: { system: [], user: [], examples: [] },
+        stats: { system: 0, user: 0, examples: 0, total: 0 },
+        warning: 'Failed to load guidelines, using empty set'
+      });
     }
   } catch (error) {
     console.log('💥 Exception in GET /api/guidelines/chat:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
+    res.json({ 
+      success: true,
+      data: { system: [], user: [], examples: [] },
+      stats: { system: 0, user: 0, examples: 0, total: 0 },
+      warning: 'Exception occurred, using empty guidelines set'
     });
   }
 });
@@ -2988,7 +3034,14 @@ ${historyContext ? `Context מהשיחה: ${historyContext}` : ''}
 1. השתמש רק ב-SELECT (אסור ALTER/INSERT/UPDATE/DELETE)
 2. בדוק שכל העמודות קיימות בסכמה
 3. השתמש בשמות עמודות מדויקים כפי שמופיעים בסכמה
-4. החזר רק את ה-SQL, ללא markdown או הסברים`;
+4. **קריטי: שמות עמודות ב-SELECT חייבים להיות בעברית בלי גרשיים**
+   - year → שנה
+   - month → חודש  
+   - total_sales → סכום_מכירות
+   - sales_amount → סכום_מכירות
+   - customer → לקוח
+   - product → מוצר
+5. החזר רק את ה-SQL, ללא markdown או הסברים`;
 
     const response = await anthropic.messages.create({
       model: MODELS.claude,
@@ -3026,5 +3079,55 @@ ${historyContext ? `Context מהשיחה: ${historyContext}` : ''}
     throw error;
   }
 }
+
+// POST /api/guidelines/quick - יצירת הנחיה מהירה מהצ'אט
+app.post('/api/guidelines/quick', async (req, res) => {
+  console.log('⚡ POST /api/guidelines/quick - יצירת הנחיה מהירה');
+  console.log('📋 Request body:', req.body);
+  
+  try {
+    const {
+      content,
+      category = 'user',
+      moduleId,
+      relatedQuery,
+      relatedSql
+    } = req.body;
+    
+    // קבלת user email מה-headers או מה-body
+    const userEmail = req.headers['x-user-email'] || req.body.userEmail;
+    
+    if (!userEmail) {
+      console.log('❌ חסר user email');
+      return res.status(400).json({
+        success: false,
+        error: 'User email is required'
+      });
+    }
+    
+    const result = await createQuickGuideline({
+      content,
+      userEmail,
+      category,
+      moduleId,
+      relatedQuery,
+      relatedSql
+    });
+    
+    if (result.success) {
+      console.log('✅ הנחיה מהירה נוצרה:', result.data.id);
+      res.json(result);
+    } else {
+      console.log('❌ שגיאה ביצירת הנחיה מהירה:', result.error);
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    console.log('💥 Exception in POST /api/guidelines/quick:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal server error' 
+    });
+  }
+});
 
 

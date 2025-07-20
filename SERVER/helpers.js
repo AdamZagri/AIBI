@@ -18,9 +18,9 @@ export function stripLongLists(txt, maxLines = 20) {
 export function profileRows(rows) {
     if (!rows?.length) return {}
     const cols = Object.keys(rows[0])
-    const dateLike = /^(שנה|month|day|חודש)$/i
+    const dateLike = /^(שנה|year|month|day|חודש|תאריך)$/i
     const numerics = cols.filter(c => typeof rows[0][c] === 'number' && !dateLike.test(c))
-    const years = cols.filter(c => /שנה/i.test(c))
+    const years = cols.filter(c => /(שנה|year)/i.test(c))
     const dates = cols.filter(c => dateLike.test(c) && typeof rows[0][c] !== 'number')
     return { cols, numerics, years, dates, rowCount: rows.length }
 }

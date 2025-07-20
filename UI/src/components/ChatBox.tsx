@@ -40,6 +40,7 @@ import {
 } from '@chakra-ui/react';
 import ClarifyDialog from './ClarifyDialog';
 import MessageLog from './MessageLog';
+import GuidelineImprovementPanel from './GuidelineImprovementPanel';
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -95,6 +96,7 @@ type Msg = {
   data?: any;
   sql?: string;
   log?: MessageLogEntry[];
+  userQuestion?: string;
 };
 type Panels = { json?: boolean; sql?: boolean };
 type VizMap = Record<string | number, string | undefined>;
@@ -512,13 +514,21 @@ export default function ChatBox() {
       console.warn('WebSocket not open, cannot register');
     }
 
+    // Get user email from session or fallback
+    const userEmail = session?.user?.email || mockSession.user.email || 'adam@rotlein.co.il';
+    console.log('💬 Sending message with userEmail:', userEmail);
+
     try {
       const r = await fetch('https://aibi.cloudline.co.il/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-email': userEmail
+        },
         body: JSON.stringify({
           message: input,
-          messageId: ts, // <--- זה החלק החשוב!
+          messageId: ts,
+          userEmail: userEmail,
           chatId: localStorage.getItem('currentChatId') || localStorage.getItem('chatId') || undefined,
         }),
       });
@@ -531,7 +541,7 @@ export default function ChatBox() {
       }
       setMessages((m) => [
         ...m,
-        { id: ts + 1, text: reply, sender: 'bot', viz, data, sql },
+        { id: ts + 1, text: reply, sender: 'bot', viz, data, sql, userQuestion: input },
       ]);
     } catch {
       setMessages((m) => [
@@ -543,19 +553,89 @@ export default function ChatBox() {
     }
   };
 
+  // פונקציה לשליחה מחדש של שאלה (לאחר הוספת הנחיה)
+  const handleAskAgain = async (question: string) => {
+    if (!question.trim()) return;
+    
+    // עדכון ה-input ושליחה
+    setInput(question);
+    
+    // המתנה קצרה ואז שליחה אוטומטית
+    setTimeout(async () => {
+      const ts = Date.now().toString();
+      setMessages((m) => [...m, { id: ts, text: question, sender: 'user', log: [] }]);
+      lastUserQueryRef.current = question;
+      setInput('');
+      setLoading(true);
+
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        try {
+          wsRef.current.send(JSON.stringify({ type: 'register', messageId: ts }));
+        } catch (error) {
+          console.warn('Failed to send WebSocket message:', error);
+        }
+      }
+
+      // Get user email from session or fallback
+      const userEmail = session?.user?.email || mockSession.user.email || 'adam@rotlein.co.il';
+
+      try {
+        const r = await fetch('https://aibi.cloudline.co.il/chat', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'x-user-email': userEmail
+          },
+          body: JSON.stringify({
+            message: question,
+            messageId: ts,
+            userEmail: userEmail,
+            chatId: localStorage.getItem('currentChatId') || localStorage.getItem('chatId') || undefined,
+          }),
+        });
+        const headerChatId = r.headers.get('X-Chat-Id');
+        const { reply, viz, data, sql, chatId: bodyChatId } = await r.json();
+        const finalChatId = headerChatId || bodyChatId;
+        if (finalChatId) {
+          localStorage.setItem('chatId', finalChatId);
+          localStorage.setItem('currentChatId', finalChatId);
+        }
+        setMessages((m) => [
+          ...m,
+          { id: ts + 1, text: reply, sender: 'bot', viz, data, sql, userQuestion: question },
+        ]);
+      } catch {
+        setMessages((m) => [
+          ...m,
+          { id: ts + 1, text: '⚠️ שגיאה בשרת', sender: 'error' },
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    }, 100);
+  };
+
   // clarification submit
   const handleClarifySubmit = async (selected: string) => {
     if (!clarifyReq) return;
     setClarifyReq(null);
     setLoading(true);
 
+    // Get user email from session or fallback
+    const userEmail = session?.user?.email || mockSession.user.email || 'adam@rotlein.co.il';
+    console.log('💬 Sending clarification with userEmail:', userEmail);
+
     try {
       const r = await fetch('https://aibi.cloudline.co.il/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-email': userEmail
+        },
         body: JSON.stringify({
           chatId: localStorage.getItem('currentChatId') || localStorage.getItem('chatId'),
           message: lastUserQueryRef.current,
+          userEmail: userEmail,
           clarification: {
             original: clarifyReq.missing.name,
             selected,
@@ -789,6 +869,15 @@ export default function ChatBox() {
                             onSelect={handleSelect}
                           />
                         )}
+                        
+                        {/* כפתור שיפור הנחיות */}
+                        <GuidelineImprovementPanel 
+                          messageId={String(m.id)}
+                          userQuestion={m.userQuestion || ''}
+                          sqlResponse={m.sql}
+                          botResponse={m.text}
+                          onAskAgain={handleAskAgain}
+                        />
                       </>
                     ) : (
                       <Text
