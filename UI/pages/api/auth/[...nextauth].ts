@@ -3,8 +3,6 @@
 import NextAuth, { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 
-const NEXTAUTH_SECRET = 'f2zKSosJJ6o0s4R2oL3hjf91eGOWERdSRE0x7h3QZwg';
-
 // הגדרת משתמש ברירת מחדל
 const DEFAULT_USER = {
   id: '1',
@@ -24,7 +22,7 @@ export const authOptions: NextAuthOptions = {
       }
     })
   ],
-  secret: NEXTAUTH_SECRET,
+  secret: process.env.NEXTAUTH_SECRET,
   session: { 
     strategy: 'jwt',
     maxAge: 30 * 24 * 60 * 60, // 30 days
