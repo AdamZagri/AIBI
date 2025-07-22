@@ -55,14 +55,18 @@ export const authOptions: NextAuthOptions = {
       return true;
     },
     async redirect({ url, baseUrl }) {
-      // הפניה ישירה לצ'אט אחרי התחברות
       console.log('Redirect called with:', { url, baseUrl });
-      
-      // וודא שה-baseUrl תקין
+
       const cleanBaseUrl = process.env.NEXTAUTH_URL || baseUrl || 'http://localhost:3000';
-      
-      // תמיד הפנה לצ'אט
-      return `${cleanBaseUrl}/chat`;
+
+      // אם NextAuth מספק URL פנימי (מתחיל ב "/") – נחבר ל-baseUrl
+      if (url.startsWith('/')) return `${cleanBaseUrl}${url}`;
+
+      // אם היעד כבר בתוך ה-baseUrl (למשל /login או /chat), החזר אותו כפי שהוא
+      if (url.startsWith(cleanBaseUrl)) return url;
+
+      // ברירת מחדל: החזר כתובת callback כפי שהיא
+      return url;
     },
     async jwt({ token, user }) {
       // אם אין טוקן או שיש משתמש חדש, נוסיף את המשתמש ברירת המחדל

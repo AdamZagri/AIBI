@@ -1,9 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Box, Button, Heading, Input, Stack, Text } from '@chakra-ui/react';
-import { signIn } from 'next-auth/react';
+import { signIn, getProviders } from 'next-auth/react';
+
+type Prov = Record<string, any> | null;
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
+  const [providers, setProviders] = useState<Prov>(null);
+
+  useEffect(() => {
+    getProviders().then(setProviders);
+  }, []);
 
   const handleEmailLogin = () => {
     if (!email.trim()) return;
@@ -15,7 +22,11 @@ export default function LoginPage() {
       <Box bg="white" p={8} borderRadius="md" boxShadow="lg" maxW="sm" w="full">
         <Stack spacing={6}>
           <Heading size="md" textAlign="center">התחברות</Heading>
-          <Button colorScheme="blue" onClick={() => signIn('google', { callbackUrl: '/chat' })}>
+          <Button
+            colorScheme="blue"
+            onClick={() => signIn('google', { callbackUrl: '/chat' })}
+            isDisabled={!providers?.google}
+          >
             התחברות עם Google
           </Button>
           <Text textAlign="center" color="gray.500">או</Text>
