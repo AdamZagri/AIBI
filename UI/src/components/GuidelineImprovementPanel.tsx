@@ -28,6 +28,7 @@ import {
 import { useState } from 'react';
 import { FaLightbulb, FaPlus, FaRedo } from 'react-icons/fa';
 import { useSession } from 'next-auth/react';
+import { SERVER_BASE_URL } from '@/lib/config';
 
 interface GuidelineImprovementPanelProps {
   messageId: string;
@@ -67,7 +68,7 @@ export default function GuidelineImprovementPanel({
     setIsLoading(true);
     
     try {
-      const response = await fetch('https://aibi.cloudline.co.il/api/guidelines/quick', {
+      const response = await fetch(`${SERVER_BASE_URL}/api/guidelines/quick`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

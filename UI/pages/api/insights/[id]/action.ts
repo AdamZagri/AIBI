@@ -14,9 +14,10 @@ export default async function handler(
   try {
     // Try to call your server first
     try {
-      console.log('🔄 Attempting to call server action:', `https://aibi.cloudline.co.il/api/insights/${id}/actions`);
+      const SERVER_BASE_URL = process.env.NEXT_PUBLIC_SERVER_URL || 'https://aibi.cloudline.co.il';
+      console.log('🔄 Attempting to call server action:', `${SERVER_BASE_URL}/api/insights/${id}/actions`);
       console.log('📤 Action payload:', { action, user });
-      const response = await fetch(`https://aibi.cloudline.co.il/api/insights/${id}/actions`, {
+      const response = await fetch(`${SERVER_BASE_URL}/api/insights/${id}/actions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -20,6 +20,7 @@ import {
 import { FiMessageSquare, FiRefreshCw, FiSettings, FiPlus, FiWifi, FiWifiOff } from 'react-icons/fi'
 import ChatBox from '@/components/ChatBox'
 import SessionsModal from '@/components/SessionsModal'
+import { SERVER_BASE_URL } from '@/lib/config';
 
 export default function ChatPage() {
   const { data: session, status } = useSession()
@@ -58,7 +59,7 @@ export default function ChatPage() {
             const userName = session?.user?.name
             
             if (userEmail) {
-              const response = await fetch('https://aibi.cloudline.co.il/api/chat/new', {
+              const response = await fetch(`${SERVER_BASE_URL}/api/chat/new`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ userEmail, userName })
@@ -115,7 +116,7 @@ export default function ChatPage() {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 5000)
       
-      const response = await fetch('https://aibi.cloudline.co.il/health', {
+      const response = await fetch(`${SERVER_BASE_URL}/health`, {
         method: 'GET',
         signal: controller.signal
       })
@@ -229,7 +230,7 @@ export default function ChatPage() {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
       
-      const response = await fetch(`https://aibi.cloudline.co.il/api/chat/sessions?userEmail=${encodeURIComponent(session.user.email)}`, {
+      const response = await fetch(`${SERVER_BASE_URL}/api/chat/sessions?userEmail=${encodeURIComponent(session.user.email)}`, {
         signal: controller.signal
       })
       
@@ -285,7 +286,7 @@ export default function ChatPage() {
       const userEmail = session?.user?.email;
       const userName = session?.user?.name;
       
-      const response = await fetch('https://aibi.cloudline.co.il/api/chat/new', {
+      const response = await fetch(`${SERVER_BASE_URL}/api/chat/new`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userEmail, userName })

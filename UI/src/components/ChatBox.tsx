@@ -64,6 +64,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSession, signIn } from 'next-auth/react';
 import ChartRenderer from './ChartRenderer';
+import { SERVER_BASE_URL, WS_BASE_URL } from '@/lib/config';
 // Removed ChatHistoryModal import as it's no longer used in ChatBox
 
 // Floating draggable button using framer-motion
@@ -159,7 +160,7 @@ export default function ChatBox() {
         console.log('Loading existing chat history for ID:', existingChatId);
         try {
           const historyResponse = await fetch(
-            `https://aibi.cloudline.co.il/api/chat/history/${existingChatId}`
+            `${SERVER_BASE_URL}/api/chat/history/${existingChatId}`
           );
           
           if (historyResponse.ok) {
@@ -367,7 +368,7 @@ export default function ChatBox() {
     // 1. אתחול WebSocket תמיד
     try {
       if (!wsRef.current || wsRef.current.readyState > 1) {
-        wsRef.current = new WebSocket('wss://aibi.cloudline.co.il');
+        wsRef.current = new WebSocket(WS_BASE_URL);
         wsRef.current.onopen = () => {
           console.log('WebSocket connected');
           setWsStatus('connected');
@@ -529,7 +530,7 @@ export default function ChatBox() {
     console.log('💬 Sending message with userEmail:', userEmail);
 
     try {
-      const r = await fetch('https://aibi.cloudline.co.il/chat', {
+      const r = await fetch(`${SERVER_BASE_URL}/chat`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -590,7 +591,7 @@ export default function ChatBox() {
       const userEmail = session?.user?.email || 'adam@rotlein.co.il';
 
       try {
-        const r = await fetch('https://aibi.cloudline.co.il/chat', {
+        const r = await fetch(`${SERVER_BASE_URL}/chat`, {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
@@ -636,7 +637,7 @@ export default function ChatBox() {
     console.log('💬 Sending clarification with userEmail:', userEmail);
 
     try {
-      const r = await fetch('https://aibi.cloudline.co.il/chat', {
+      const r = await fetch(`${SERVER_BASE_URL}/chat`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',

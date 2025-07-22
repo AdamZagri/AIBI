@@ -6,8 +6,10 @@ const nextConfig = {
     forceSwcTransforms: true,
   },
   env: {
-    NEXTAUTH_URL: 'http://localhost:3000',
-    NEXTAUTH_URL_INTERNAL: 'http://localhost:3000',
+    NEXTAUTH_URL: process.env.NEXTAUTH_URL || 'http://localhost:3000',
+    NEXTAUTH_URL_INTERNAL: process.env.NEXTAUTH_URL_INTERNAL || 'http://localhost:3000',
+    NEXT_PUBLIC_SERVER_URL: process.env.NEXT_PUBLIC_SERVER_URL || 'https://aibi.cloudline.co.il',
+    NEXT_PUBLIC_WS_BASE_URL: process.env.NEXT_PUBLIC_WS_BASE_URL || '',
   },
   webpack: (config: any, { isServer }: { isServer: boolean }) => {
     // ➊ Fix case sensitivity issues on Windows

@@ -52,6 +52,7 @@ import {
   buildGrouped,
   toPieBy,
 } from './chartHelpers';
+import { SERVER_BASE_URL } from '@/lib/config';
 
 const ReactEcharts = dynamic(() => import('echarts-for-react'), { ssr: false });
 
@@ -359,7 +360,7 @@ export default function ChartRenderer({ viz, data, sql, onSelect }: VizProps) {
   const onRefreshData = async () => {
     if (!sql) return;
     try {
-              const res = await fetch('https://aibi.cloudline.co.il/refresh-data', { // ← עדכון הכתובת
+              const res = await fetch(`${SERVER_BASE_URL}/refresh-data`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sql_query: sql }),

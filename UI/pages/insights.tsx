@@ -9,6 +9,7 @@ import { InsightsOverview } from '@/components/insights/InsightsOverview';
 import { InsightDomainFilter, FilterState } from '@/components/insights/InsightDomainFilter';
 import { InsightsList } from '@/components/insights/InsightsList';
 import { InsightDetails } from '@/components/insights/InsightDetails';
+import { SERVER_BASE_URL } from '@/lib/config';
 
 export default function InsightsPage() {
   const { data: session } = useSession()
@@ -36,7 +37,7 @@ export default function InsightsPage() {
     try {
       setLoading(true);
       console.log('🔄 Client: Fetching insights from backend API...');
-      const response = await fetch('https://aibi.cloudline.co.il/api/insights', {
+      const response = await fetch(`${SERVER_BASE_URL}/api/insights`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -97,7 +98,7 @@ export default function InsightsPage() {
   };
 
   const handleAction = (id: number, action: string) => {
-    fetch(`https://aibi.cloudline.co.il/api/insights/${id}/actions`, {
+    fetch(`${SERVER_BASE_URL}/api/insights/${id}/actions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -130,7 +131,7 @@ export default function InsightsPage() {
   };
 
   const handleSubmitFeedback = (insightId: number, feedback: any) => {
-    fetch(`https://aibi.cloudline.co.il/api/insights/${insightId}/feedback`, {
+    fetch(`${SERVER_BASE_URL}/api/insights/${insightId}/feedback`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

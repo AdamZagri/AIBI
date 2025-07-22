@@ -35,7 +35,8 @@ export default async function handler(
 
     // Try to call your server first
     try {
-      const response = await fetch(`https://aibi.cloudline.co.il/api/insights?${params.toString()}`, {
+      const SERVER_BASE_URL = process.env.NEXT_PUBLIC_SERVER_URL || 'https://aibi.cloudline.co.il';
+      const response = await fetch(`${SERVER_BASE_URL}/api/insights?${params.toString()}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

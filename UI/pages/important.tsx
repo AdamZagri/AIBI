@@ -60,6 +60,7 @@ import {
   Code
 } from '@chakra-ui/react'
 import { FiPlus, FiEdit2, FiTrash2, FiCheck, FiX, FiRefreshCw, FiSettings, FiFilter, FiSearch, FiDownload, FiUpload, FiChevronDown, FiChevronRight, FiSave } from 'react-icons/fi'
+import { SERVER_BASE_URL } from '@/lib/config';
 
 // Types
 interface BusinessModule {
@@ -175,7 +176,7 @@ export default function ImportantPage() {
       setLoading(true)
       
       // Load modules
-      const modulesResponse = await fetch('https://aibi.cloudline.co.il/api/guidelines/modules')
+      const modulesResponse = await fetch(`${SERVER_BASE_URL}/api/guidelines/modules`)
       const modulesData = await modulesResponse.json()
       if (modulesData.success) {
         setModules(modulesData.data)
@@ -213,7 +214,7 @@ export default function ImportantPage() {
         params.append('user_email', session.user.email)
       }
       
-      const response = await fetch(`https://aibi.cloudline.co.il/api/guidelines?${params}`)
+      const response = await fetch(`${SERVER_BASE_URL}/api/guidelines?${params}`)
       const data = await response.json()
       
       if (data.success) {
@@ -239,7 +240,7 @@ export default function ImportantPage() {
         params.append('difficulty_level', difficulty)
       }
       
-      const response = await fetch(`https://aibi.cloudline.co.il/api/guidelines?category=examples&${params}`)
+      const response = await fetch(`${SERVER_BASE_URL}/api/guidelines?category=examples&${params}`)
       
       if (!response.ok) {
         const errorText = await response.text()
@@ -319,7 +320,7 @@ export default function ImportantPage() {
 
   const handleValidateGuideline = async (guidelineId: number) => {
     try {
-      const response = await fetch(`https://aibi.cloudline.co.il/api/guidelines/${guidelineId}/validate`, {
+      const response = await fetch(`${SERVER_BASE_URL}/api/guidelines/${guidelineId}/validate`, {
         method: 'POST'
       })
       const data = await response.json()
@@ -352,7 +353,7 @@ export default function ImportantPage() {
       const isCurrentlyActive = Boolean(currentActive)
       console.log('🔄 Toggling active for guideline:', guidelineId, 'from', currentActive, '(boolean:', isCurrentlyActive, ') to', !isCurrentlyActive);
       
-      const url = `https://aibi.cloudline.co.il/api/guidelines/${guidelineId}`;
+      const url = `${SERVER_BASE_URL}/api/guidelines/${guidelineId}`;
       console.log('🔗 Request URL:', url);
       
       const requestBody = {
@@ -404,7 +405,7 @@ export default function ImportantPage() {
       // Better error message for network issues
       let errorMessage = 'שגיאה לא ידועה';
       if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-        errorMessage = 'בעיה בחיבור לשרת. וודא שהשרת רץ על https://aibi.cloudline.co.il';
+        errorMessage = `בעיה בחיבור לשרת. וודא שהשרת רץ על ${SERVER_BASE_URL}`;
       } else if (error instanceof Error) {
         errorMessage = error.message;
       }
@@ -492,8 +493,8 @@ export default function ImportantPage() {
   const handleSaveGuideline = async () => {
     try {
       const url = isEditing 
-        ? `https://aibi.cloudline.co.il/api/guidelines/${editingGuideline!.id}`
-        : 'https://aibi.cloudline.co.il/api/guidelines'
+        ? `${SERVER_BASE_URL}/api/guidelines/${editingGuideline!.id}`
+        : `${SERVER_BASE_URL}/api/guidelines`
       
       const method = isEditing ? 'PUT' : 'POST'
       
@@ -545,7 +546,7 @@ export default function ImportantPage() {
     
     try {
       console.log('🗑️ Deleting guideline:', guidelineId);
-      const response = await fetch(`https://aibi.cloudline.co.il/api/guidelines/${guidelineId}`, {
+      const response = await fetch(`${SERVER_BASE_URL}/api/guidelines/${guidelineId}`, {
         method: 'DELETE'
       })
       
@@ -578,7 +579,7 @@ export default function ImportantPage() {
   const handleBulkToggle = async (guidelines: any[], activate: boolean) => {
     try {
       const promises = guidelines.map(guideline => 
-        fetch(`https://aibi.cloudline.co.il/api/guidelines/${guideline.id}`, {
+        fetch(`${SERVER_BASE_URL}/api/guidelines/${guideline.id}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -626,7 +627,7 @@ export default function ImportantPage() {
         formData.append('customTitle', importCustomTitle)
       }
       
-      const response = await fetch('https://aibi.cloudline.co.il/api/guidelines/import/file', {
+      const response = await fetch(`${SERVER_BASE_URL}/api/guidelines/import/file`, {
         method: 'POST',
         body: formData
       })

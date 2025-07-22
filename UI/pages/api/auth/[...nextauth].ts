@@ -2,6 +2,7 @@
 
 import NextAuth, { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
+import GoogleProvider from 'next-auth/providers/google';
 
 // הגדרת משתמש ברירת מחדל
 const DEFAULT_USER = {
@@ -10,18 +11,34 @@ const DEFAULT_USER = {
   email: 'adam@rotlein.co.il',
 };
 
-export const authOptions: NextAuthOptions = {
-  providers: [
+const providers = [] as any[];
+
+// Prefer Google OAuth if credentials are provided
+if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  providers.push(
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID as string,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+    })
+  );
+}
+
+// Always keep credentials-based auto-signin for local/dev when Google keys are missing
+if (providers.length === 0) {
+  providers.push(
     CredentialsProvider({
       id: 'auto-signin',
       name: 'Auto Sign In',
       credentials: {},
       async authorize() {
-        // החזרת משתמש ברירת מחדל אוטומטית
         return DEFAULT_USER;
-      }
+      },
     })
-  ],
+  );
+}
+
+export const authOptions: NextAuthOptions = {
+  providers,
   secret: process.env.NEXTAUTH_SECRET || 'default-secret-for-development',
   session: { 
     strategy: 'jwt',
@@ -40,7 +57,7 @@ export const authOptions: NextAuthOptions = {
       console.log('Redirect called with:', { url, baseUrl });
       
       // וודא שה-baseUrl תקין
-      const cleanBaseUrl = baseUrl || 'http://localhost:3000';
+      const cleanBaseUrl = process.env.NEXTAUTH_URL || baseUrl || 'http://localhost:3000';
       
       // תמיד הפנה לצ'אט
       return `${cleanBaseUrl}/chat`;

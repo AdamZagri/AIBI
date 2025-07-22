@@ -11,8 +11,9 @@ export default async function handler(
   try {
     // Try to call your server first
     try {
-      console.log('🔄 Attempting to call server stats:', 'https://aibi.cloudline.co.il/api/insights/stats');
-      const response = await fetch('https://aibi.cloudline.co.il/api/insights/stats', {
+      const SERVER_BASE_URL = process.env.NEXT_PUBLIC_SERVER_URL || 'https://aibi.cloudline.co.il';
+      console.log('🔄 Attempting to call server stats:', `${SERVER_BASE_URL}/api/insights/stats`);
+      const response = await fetch(`${SERVER_BASE_URL}/api/insights/stats`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
