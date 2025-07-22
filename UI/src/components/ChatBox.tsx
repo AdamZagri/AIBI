@@ -37,6 +37,7 @@ import {
   Heading,
   useColorModeValue,
   SimpleGrid,
+  Container,
 } from '@chakra-ui/react';
 import ClarifyDialog from './ClarifyDialog';
 import MessageLog from './MessageLog';
@@ -58,9 +59,10 @@ import {
   FaRobot,
   FaFont,
 } from 'react-icons/fa';
+import { FiLogIn } from 'react-icons/fi';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useSession } from 'next-auth/react';
+import { useSession, signIn } from 'next-auth/react';
 import ChartRenderer from './ChartRenderer';
 // Removed ChatHistoryModal import as it's no longer used in ChatBox
 
@@ -102,16 +104,9 @@ type Panels = { json?: boolean; sql?: boolean };
 type VizMap = Record<string | number, string | undefined>;
 
 export default function ChatBox() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   
-  // אובייקט זמני אם אין session - יעודכן מגוגל בעתיד
-  const mockSession = {
-    user: {
-      name: 'משתמש מנכ"ל',
-      email: 'ceo@company.com',
-    }
-  };
-
+  // All hooks must be declared before any conditional returns
   const [messages, setMessages] = useState<Msg[]>([]);
   const [isClient, setIsClient] = useState(false);
   const [input, setInput] = useState('');
@@ -130,6 +125,28 @@ export default function ChatBox() {
   const [botBgColor, setBotBgColor] = useState('gray.50');
   const [currentChatId, setCurrentChatId] = useState<string>('');
 
+  // Scroll to bottom functionality
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
+
+  // Font settings popover
+  const {
+    isOpen: isFontSettingsOpen,
+    onOpen: openFontSettings,
+    onClose: closeFontSettings,
+  } = useDisclosure();
+
+  // clarification dialog state
+  const [clarifyReq, setClarifyReq] = useState<{ missing: { type: string; name: string }; options: string[] } | null>(null);
+
+  const lastUserQueryRef = useRef<string>('');
+  const didInit = useRef(false);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  const toast = useToast();
+  
   // Load chat session function
   const loadChatSession = useCallback(async () => {
     setLoading(true);
@@ -188,6 +205,65 @@ export default function ChatBox() {
       setLoading(false);
     }
   }, []);
+  
+  // העבר את הפונקציה לתוך הקומפוננט
+  const addStatusToMessage = useCallback((msgId: number, statusText: string, data?: string) => {
+    setMessages((msgs) =>
+      msgs.map((msg) =>
+        msg.id === msgId
+          ? {
+              ...msg,
+              log: [
+                ...(msg.log || []),
+                { time: new Date().toISOString(), text: statusText, data }
+              ]
+            }
+          : msg
+      )
+    );
+    }, []);
+  
+  // Save font settings callbacks
+  const handleFontSizeChange = useCallback((value: number) => {
+    setFontSize(value);
+    try {
+      localStorage.setItem('chatFontSize', value.toString());
+    } catch (error) {
+      console.error('Failed to save font size to localStorage:', error);
+    }
+  }, []);
+
+  const handleFontFamilyChange = useCallback((value: string) => {
+    setFontFamily(value);
+    try {
+      localStorage.setItem('chatFontFamily', value);
+    } catch (error) {
+      console.error('Failed to save font family to localStorage:', error);
+    }
+  }, []);
+
+  const handleUserBgColorChange = useCallback((value: string) => {
+    setUserBgColor(value);
+    try {
+      localStorage.setItem('chatUserBgColor', value);
+    } catch (error) {
+      console.error('Failed to save user background color to localStorage:', error);
+    }
+  }, []);
+
+  const handleBotBgColorChange = useCallback((value: string) => {
+    setBotBgColor(value);
+    try {
+      localStorage.setItem('chatBotBgColor', value);
+    } catch (error) {
+      console.error('Failed to save bot background color to localStorage:', error);
+    }
+  }, []);
+
+  const handleSelect = useCallback(
+    (label: string) => setInput((p) => (p ? `${p} ${label}` : label)),
+    []
+  );
 
   // Monitor chatId changes and reload chat history when it changes
   useEffect(() => {
@@ -241,57 +317,28 @@ export default function ChatBox() {
     };
   }, [isClient, currentChatId, loadChatSession]);
 
-  // Scroll to bottom functionality
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-
-  // Font settings popover
-  const {
-    isOpen: isFontSettingsOpen,
-    onOpen: openFontSettings,
-    onClose: closeFontSettings,
-  } = useDisclosure();
-
-  // clarification dialog state
-  const [clarifyReq, setClarifyReq] = useState<{ missing: { type: string; name: string }; options: string[] } | null>(null);
-
-  const lastUserQueryRef = useRef<string>('');
-  const didInit = useRef(false);
-  const wsRef = useRef<WebSocket | null>(null);
-
-  const toast = useToast();
-
-  // העבר את הפונקציה לתוך הקומפוננט
-  const addStatusToMessage = useCallback((msgId: number, statusText: string, data?: string) => {
-    setMessages((msgs) =>
-      msgs.map((msg) =>
-        msg.id === msgId
-          ? {
-              ...msg,
-              log: [
-                ...(msg.log || []),
-                { time: new Date().toISOString(), text: statusText, data }
-              ]
-            }
-          : msg
-      )
-    );
-  }, []);
-
-  // ─── Chat history functions ─────────────────────────────────
-  // Removed as per edit hint
-
-
-  const endRef = useRef<HTMLDivElement>(null);
-  const msgCount = messages.length;
-  
   // Auto scroll to bottom when new messages arrive
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [msgCount, loading]);
+  }, [messages.length, loading]);
+
+
+
+  // WebSocket and other initialization
+
+
+
+
+
+  
+  // העבר את הפונקציה לתוך הקומפוננט
+  // ─── Chat history functions ─────────────────────────────────
+  // Removed as per edit hint
+
+
+  const msgCount = messages.length;
 
   // Monitor scroll position to show/hide scroll to bottom button
   useEffect(() => {
@@ -410,43 +457,6 @@ export default function ChatBox() {
     }
   }, [isClient, loadChatSession]);
 
-  // Save font settings to localStorage when changed
-  const handleFontSizeChange = useCallback((value: number) => {
-    setFontSize(value);
-    try {
-      localStorage.setItem('chatFontSize', value.toString());
-    } catch (error) {
-      console.error('Failed to save font size to localStorage:', error);
-    }
-  }, []);
-
-  const handleFontFamilyChange = useCallback((value: string) => {
-    setFontFamily(value);
-    try {
-      localStorage.setItem('chatFontFamily', value);
-    } catch (error) {
-      console.error('Failed to save font family to localStorage:', error);
-    }
-  }, []);
-
-  const handleUserBgColorChange = useCallback((value: string) => {
-    setUserBgColor(value);
-    try {
-      localStorage.setItem('chatUserBgColor', value);
-    } catch (error) {
-      console.error('Failed to save user background color to localStorage:', error);
-    }
-  }, []);
-
-  const handleBotBgColorChange = useCallback((value: string) => {
-    setBotBgColor(value);
-    try {
-      localStorage.setItem('chatBotBgColor', value);
-    } catch (error) {
-      console.error('Failed to save bot background color to localStorage:', error);
-    }
-  }, []);
-
   // Font options for the select dropdown
   const fontOptions = [
     { value: 'inherit', label: 'ברירת מחדל' },
@@ -514,8 +524,8 @@ export default function ChatBox() {
       console.warn('WebSocket not open, cannot register');
     }
 
-    // Get user email from session or fallback
-    const userEmail = session?.user?.email || mockSession.user.email || 'adam@rotlein.co.il';
+    // Get user email from session - fallback to mock user
+    const userEmail = session?.user?.email || 'adam@rotlein.co.il';
     console.log('💬 Sending message with userEmail:', userEmail);
 
     try {
@@ -576,8 +586,8 @@ export default function ChatBox() {
         }
       }
 
-      // Get user email from session or fallback
-      const userEmail = session?.user?.email || mockSession.user.email || 'adam@rotlein.co.il';
+      // Get user email from session - fallback to mock user
+      const userEmail = session?.user?.email || 'adam@rotlein.co.il';
 
       try {
         const r = await fetch('https://aibi.cloudline.co.il/chat', {
@@ -621,8 +631,8 @@ export default function ChatBox() {
     setClarifyReq(null);
     setLoading(true);
 
-    // Get user email from session or fallback
-    const userEmail = session?.user?.email || mockSession.user.email || 'adam@rotlein.co.il';
+    // Get user email from session - fallback to mock user
+    const userEmail = session?.user?.email || 'adam@rotlein.co.il';
     console.log('💬 Sending clarification with userEmail:', userEmail);
 
     try {
@@ -671,11 +681,6 @@ export default function ChatBox() {
       setLoading(false);
     }
   };
-
-  const handleSelect = useCallback(
-    (label: string) => setInput((p) => (p ? `${p} ${label}` : label)),
-    []
-  );
 
   const msgEls = useMemo(
     () => (
@@ -937,6 +942,19 @@ export default function ChatBox() {
     ),
     [messages, openPanels, collapsed, overrideViz, handleSelect, fontSize, fontFamily, userBgColor, botBgColor, previewUserColor, previewBotColor]
   );
+
+  // Check authentication status
+  if (status === 'loading') return <Spinner />;
+  
+  if (status === 'unauthenticated' || !session) {
+    return (
+      <Box p={8} textAlign="center">
+        <Text fontSize="xl">יש להתחבר כדי להשתמש בצ'אט</Text>
+      </Box>
+    );
+  }
+
+  // מכאן והלאה אנחנו יודעים ש-session קיים ומכיל את נתוני המשתמש
 
   return (
     <Box flex="1" display="flex" flexDir="column" minH="0">

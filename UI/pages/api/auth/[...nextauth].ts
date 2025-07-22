@@ -22,7 +22,7 @@ export const authOptions: NextAuthOptions = {
       }
     })
   ],
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: process.env.NEXTAUTH_SECRET || 'default-secret-for-development',
   session: { 
     strategy: 'jwt',
     maxAge: 30 * 24 * 60 * 60, // 30 days
@@ -37,16 +37,13 @@ export const authOptions: NextAuthOptions = {
     },
     async redirect({ url, baseUrl }) {
       // הפניה ישירה לצ'אט אחרי התחברות
-      if (url.startsWith('/')) {
-        // אם זה בקשה פנימית, תמיד הפנה לצ'אט
-        return `http://localhost:3000/chat`;
-      }
-      if (url.startsWith('http://localhost:3000')) {
-        // אם זה כבר URL מלא של localhost, הפנה לצ'אט
-        return 'http://localhost:3000/chat';
-      }
-      // ברירת מחדל - צ'אט
-      return 'http://localhost:3000/chat';
+      console.log('Redirect called with:', { url, baseUrl });
+      
+      // וודא שה-baseUrl תקין
+      const cleanBaseUrl = baseUrl || 'http://localhost:3000';
+      
+      // תמיד הפנה לצ'אט
+      return `${cleanBaseUrl}/chat`;
     },
     async jwt({ token, user }) {
       // אם אין טוקן או שיש משתמש חדש, נוסיף את המשתמש ברירת המחדל

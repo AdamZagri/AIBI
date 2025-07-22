@@ -50,6 +50,17 @@ export default function HomePage() {
       console.log('🔄 User is authenticated, redirecting to chat...')
       window.location.href = '/chat'
     }
+    
+    // התחברות אוטומטית מיידית אם לא מחובר
+    if (isClient && status === 'unauthenticated' && !isAutoSigningIn) {
+      console.log('🔄 Auto-signin triggered')
+      setIsAutoSigningIn(true)
+      signIn('auto-signin', { 
+        redirect: false 
+      }).then(() => {
+        window.location.href = '/chat'
+      })
+    }
   }, [isClient, status, isAutoSigningIn])
 
   // פונקציה ידנית להתחברות
@@ -57,28 +68,17 @@ export default function HomePage() {
     console.log('🔄 Manual signin triggered')
     setIsAutoSigningIn(true)
     signIn('auto-signin', { 
-      callbackUrl: 'http://localhost:3000/chat',
-      redirect: true 
+      redirect: false 
+    }).then(() => {
+      window.location.href = '/chat'
+    }).catch((error) => {
+      console.error('❌ Manual signin failed:', error)
+      setIsAutoSigningIn(false)
     })
-      .then((result) => {
-        console.log('✅ Manual signin result:', result)
-      })
-      .catch((error) => {
-        console.error('❌ Manual signin failed:', error)
-        setIsAutoSigningIn(false)
-      })
   }
 
-  if (!isClient) {
-    return (
-      <Center h="50vh">
-        <Spinner size="xl" />
-      </Center>
-    )
-  }
-
-  // Show loading while session is loading
-  if (status === 'loading') {
+  // Show loading while session is loading or auto signing in
+  if (status === 'loading' || !isClient || isAutoSigningIn) {
     return (
       <Center h="50vh">
         <VStack spacing={4}>
@@ -89,8 +89,8 @@ export default function HomePage() {
     )
   }
 
-  // Show auto-signin loading if not authenticated
-  if (status === 'unauthenticated' || isAutoSigningIn) {
+  // אם מגיעים לכאן ולא מאומתים, משהו השתבש - הצג כפתור התחברות ידני
+  if (status === 'unauthenticated') {
     return (
       <Container maxW="md" py={20}>
         <VStack spacing={8} textAlign="center">
@@ -102,13 +102,6 @@ export default function HomePage() {
               מערכת אנליטיקה חכמה לנתוני ERP
             </Text>
           </VStack>
-          
-          <VStack spacing={4}>
-            <Spinner size="xl" color="blue.500" />
-            <Text color={mutedColor}>
-              מתחבר אוטומטי...
-            </Text>
-          </VStack>
 
           {/* כפתור כניסה ידנית */}
           <Button
@@ -116,8 +109,6 @@ export default function HomePage() {
             colorScheme="blue"
             size="lg"
             onClick={handleSignIn}
-            isLoading={isAutoSigningIn}
-            loadingText="מתחבר..."
           >
             כניסה למערכת
           </Button>
