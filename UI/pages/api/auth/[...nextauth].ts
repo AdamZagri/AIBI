@@ -13,7 +13,7 @@ const DEFAULT_USER = {
 
 const providers = [] as any[];
 
-// Prefer Google OAuth if credentials are provided
+// Google OAuth (if keys exist)
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   providers.push(
     GoogleProvider({
@@ -23,19 +23,21 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   );
 }
 
-// Always keep credentials-based auto-signin for local/dev when Google keys are missing
-if (providers.length === 0) {
-  providers.push(
-    CredentialsProvider({
-      id: 'auto-signin',
-      name: 'Auto Sign In',
-      credentials: {},
-      async authorize() {
-        return DEFAULT_USER;
-      },
-    })
-  );
-}
+// Credentials provider – allows הזנת מייל ידנית
+providers.push(
+  CredentialsProvider({
+    id: 'email-login',
+    name: 'Email Login',
+    credentials: {
+      email: { label: 'Email', type: 'text', placeholder: 'user@example.com' },
+    },
+    async authorize(credentials) {
+      const email = credentials?.email?.trim();
+      if (!email) return null;
+      return { id: email, name: email, email };
+    },
+  })
+);
 
 export const authOptions: NextAuthOptions = {
   providers,
@@ -45,8 +47,8 @@ export const authOptions: NextAuthOptions = {
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   pages: {
-    signIn: '/chat',
-    error: '/chat',
+    signIn: '/login',
+    error: '/login',
   },
   callbacks: {
     async signIn() {

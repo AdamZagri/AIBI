@@ -1,5 +1,6 @@
 // pages/chat.tsx
 import { useState, useEffect, useMemo } from 'react'
+import { useRouter } from 'next/router'
 import { useSession, getSession } from 'next-auth/react'
 import { GetServerSideProps } from 'next'
 import { 
@@ -24,6 +25,7 @@ import { SERVER_BASE_URL } from '@/lib/config';
 
 export default function ChatPage() {
   const { data: session, status } = useSession()
+  const router = useRouter()
   const [isClient, setIsClient] = useState(false)
   const [chatId, setChatId] = useState<string>('')
   const [chatKey, setChatKey] = useState(0) // Force re-render when chat changes
@@ -446,6 +448,11 @@ export default function ChatPage() {
         </VStack>
       </Center>
     )
+  }
+
+  if (status === 'unauthenticated' || !session) {
+    router.replace('/login');
+    return null;
   }
 
   return (
