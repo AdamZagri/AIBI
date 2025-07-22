@@ -107,6 +107,10 @@ export default function AppShell({ children }: AppShellProps) {
     { href: '/important', icon: <FiSettings />, label: 'הנחיות' }
   ]
 
+  if (router.pathname === '/login' || !session) {
+    return <>{children}</>;
+  }
+
   return (
     <ErrorBoundary>
       <Box minH="100vh" bg={bgColor}>
