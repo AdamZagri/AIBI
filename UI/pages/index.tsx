@@ -53,23 +53,30 @@ export default function HomePage() {
     
     // התחברות אוטומטית מיידית אם לא מחובר
     if (isClient && status === 'unauthenticated' && !isAutoSigningIn) {
-      console.log('🔄 Auto-signin triggered')
+      console.log('🔄 Auto-signin triggered - using email login with mock user')
       setIsAutoSigningIn(true)
-      signIn('auto-signin', { 
+      signIn('email-login', { 
+        email: 'adam@rotlein.co.il',
         redirect: false 
       }).then(() => {
+        console.log('✅ Mock user signed in, redirecting to chat')
         window.location.href = '/chat'
+      }).catch((error) => {
+        console.error('❌ Auto-signin failed:', error)
+        setIsAutoSigningIn(false)
       })
     }
   }, [isClient, status, isAutoSigningIn])
 
   // פונקציה ידנית להתחברות
   const handleSignIn = () => {
-    console.log('🔄 Manual signin triggered')
+    console.log('🔄 Manual signin triggered - using mock user')
     setIsAutoSigningIn(true)
-    signIn('auto-signin', { 
+    signIn('email-login', { 
+      email: 'adam@rotlein.co.il',
       redirect: false 
     }).then(() => {
+      console.log('✅ Mock user signed in manually, redirecting to chat')
       window.location.href = '/chat'
     }).catch((error) => {
       console.error('❌ Manual signin failed:', error)

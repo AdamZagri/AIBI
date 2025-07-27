@@ -69,22 +69,21 @@ export const authOptions: NextAuthOptions = {
       return url;
     },
     async jwt({ token, user }) {
-      // אם אין טוקן או שיש משתמש חדש, נוסיף את המשתמש ברירת המחדל
-      if (!token.email || user) {
-        token.id = user?.id || DEFAULT_USER.id;
-        token.name = user?.name || DEFAULT_USER.name;
-        token.email = user?.email || DEFAULT_USER.email;
-      }
+      // תמיד נחזיר את המשתמש ברירת המחדל (mock user)
+      token.id = DEFAULT_USER.id;
+      token.name = DEFAULT_USER.name;
+      token.email = DEFAULT_USER.email;
       return token;
     },
     async session({ session, token }) {
+      // תמיד נחזיר את המשתמש ברירת המחדל (mock user)
       const finalSession = {
         ...session,
         user: {
-          id: token.id as string || DEFAULT_USER.id,
-          name: token.name as string || DEFAULT_USER.name,
-          email: token.email as string || DEFAULT_USER.email,
-          image: token.picture as string || null
+          id: DEFAULT_USER.id,
+          name: DEFAULT_USER.name,
+          email: DEFAULT_USER.email,
+          image: null
         }
       };
       return finalSession;

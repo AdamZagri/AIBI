@@ -56,3 +56,52 @@ SERVER/package-lock.json
 
 # Ignore UI lock files
 UI/package-lock.json 
+
+# === Added for MCP/LangChain project ===
+# Large database files
+*.duckdb
+SERVER/*.duckdb
+feature_store*.duckdb
+raw_best.duckdb
+dev.duckdb
+
+# Backup files
+*.old
+*.backup
+*.bak
+
+# Duplicate directories
+SERVER/SERVER/
+SERVER/public/
+
+# Large data files and uploads
+SERVER/DATA/
+SERVER/cti_data/
+SERVER/uploads/
+uploads/
+insightUploads/
+
+# Development databases  
+dev.duckdb
+test.duckdb
+
+# AI model cache
+.ai_cache/
+.langchain_cache/
+
+# Python cache and virtual environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~ 

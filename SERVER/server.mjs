@@ -3105,11 +3105,17 @@ app.post('/api/guidelines/quick', async (req, res) => {
       });
     }
     
+    // בדיקת שדות חובה - וידוא שיש מודול תקין
+    const finalModuleId = (moduleId && moduleId > 0) ? moduleId : 6;
+    if (finalModuleId === 6 && moduleId !== 6) {
+      console.log('❌ מודול לא תקין, משתמש במודול כללי (6)');
+    }
+
     const result = await createQuickGuideline({
       content,
       userEmail,
       category,
-      moduleId,
+      moduleId: finalModuleId,
       relatedQuery,
       relatedSql
     });

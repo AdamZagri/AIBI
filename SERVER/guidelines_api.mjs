@@ -693,7 +693,7 @@ export async function createQuickGuideline(data) {
       content,
       userEmail,
       category = 'user', // ברירת מחדל: הנחיית משתמש
-      moduleId = null,
+      moduleId = 6, // ברירת מחדל: מודול כללי
       relatedQuery = null,
       relatedSql = null
     } = data;

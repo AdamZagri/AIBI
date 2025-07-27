@@ -48,10 +48,31 @@ export default function GuidelineImprovementPanel({
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [content, setContent] = useState('');
   const [category, setCategory] = useState<'user' | 'system' | 'examples'>('user');
-  const [moduleId, setModuleId] = useState<number | null>(null);
+  const [moduleId, setModuleId] = useState<number>(6); // ברירת מחדל: מודול כללי
+  const [modules, setModules] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingModules, setLoadingModules] = useState(false);
   const toast = useToast();
   const { data: session } = useSession();
+
+  // טעינת מודולים בעת פתיחת המודל
+  const loadModules = async () => {
+    if (modules.length > 0) return; // כבר נטען
+    
+    setLoadingModules(true);
+    try {
+      const response = await fetch(`${SERVER_BASE_URL}/api/guidelines/modules`);
+      const result = await response.json();
+      
+      if (result.success) {
+        setModules(result.data);
+      }
+    } catch (error) {
+      console.error('Error loading modules:', error);
+    } finally {
+      setLoadingModules(false);
+    }
+  };
 
   const handleSubmit = async (askAgain: boolean = false) => {
     if (!content.trim()) {
@@ -98,7 +119,7 @@ export default function GuidelineImprovementPanel({
         // איפוס הטופס
         setContent('');
         setCategory('user');
-        setModuleId(null);
+        setModuleId(6); // איפוס למודול כללי
         onClose();
 
         // אם המשתמש בחר "שאל שוב", שלח את השאלה שוב
@@ -134,7 +155,10 @@ export default function GuidelineImprovementPanel({
             variant="ghost"
             colorScheme="blue"
             leftIcon={<FaLightbulb />}
-            onClick={onOpen}
+            onClick={() => {
+              loadModules(); // טען מודולים
+              onOpen();
+            }}
             opacity={0.7}
             _hover={{ opacity: 1 }}
           >
@@ -197,6 +221,26 @@ export default function GuidelineImprovementPanel({
                   <option value="user">משתמש (יחול רק עליי)</option>
                   <option value="system">מערכת (יחול על כולם)</option>
                   <option value="examples">דוגמה (SQL לדוגמה)</option>
+                </Select>
+              </FormControl>
+
+              {/* בחירת מודול */}
+              <FormControl>
+                <FormLabel>מודול עסקי:</FormLabel>
+                <Select 
+                  value={moduleId} 
+                  onChange={(e) => setModuleId(parseInt(e.target.value))}
+                  isDisabled={loadingModules}
+                >
+                  {loadingModules ? (
+                    <option value={6}>טוען מודולים...</option>
+                  ) : (
+                    modules.map(module => (
+                      <option key={module.id} value={module.id}>
+                        {module.module_name_hebrew}
+                      </option>
+                    ))
+                  )}
                 </Select>
               </FormControl>
 
